@@ -12,15 +12,22 @@ import { audioBufferToBlob, decodeAudioBlob, getEffectiveDuration } from "./deco
 import {
   analyzeHarmony,
   generateBassLine,
+  generateChordPad,
   generateHarmonyFromMelody,
   parseKeyLabel,
   quantizeNotes,
   snapNotesToBass,
   snapNotesToHarmony,
 } from "./harmony";
-import { renderInstrumentTrack, renderOriginalTrack, prependSilence } from "./instruments";
+import {
+  prependSilence,
+  renderInstrumentTrack,
+  renderOriginalTrack,
+  renderSilentTrack,
+} from "./instruments";
 import { detectOnsets } from "./onsets";
 import { extractNotes, scaleNoteTimes, shiftNotes, shiftOnsets } from "./pitch";
+import { ensureMinDuration, generateDefaultBeatGrid, safeTrimStart } from "./utils";
 
 interface ProduceContext {
   masterBpm: number;
@@ -37,22 +44,46 @@ interface ProduceTrackInput {
   context: ProduceContext;
 }
 
+export interface ProductionSummary {
+  result: ProductionResult;
+  warnings: string[];
+}
+
 export async function produceSong(tracks: TrackRecording[]): Promise<ProductionResult> {
+  return (await produceSongWithSummary(tracks)).result;
+}
+
+export async function produceSongWithSummary(tracks: TrackRecording[]): Promise<ProductionSummary> {
+  const warnings: string[] = [];
   const recordedTracks = tracks.filter((track) => track.audioBlob);
+
   if (recordedTracks.length === 0) {
     return {
-      masterBpm: 120,
-      harmony: { detectedKey: "C major", chordProgression: [{ time: 0, label: "C" }] },
-      tracks,
+      result: {
+        masterBpm: 120,
+        harmony: { detectedKey: "C major", chordProgression: [{ time: 0, label: "C" }] },
+        tracks,
+      },
+      warnings,
     };
   }
 
-  const decoded = await Promise.all(
-    recordedTracks.map(async (track) => ({
-      recording: track,
-      buffer: await decodeAudioBlob(track.audioBlob!),
-    })),
-  );
+  const decoded: { recording: TrackRecording; buffer: AudioBuffer }[] = [];
+
+  for (const track of recordedTracks) {
+    try {
+      decoded.push({
+        recording: track,
+        buffer: await decodeAudioBlob(track.audioBlob!),
+      });
+    } catch {
+      warnings.push(`${capitalize(track.type)} could not be decoded and was skipped.`);
+    }
+  }
+
+  if (decoded.length === 0) {
+    throw new Error("Could not read any recorded layers.");
+  }
 
   const { masterBpm, syncByTrack } = computeAutofit(
     decoded.map(({ recording, buffer }) => ({ type: recording.type, buffer })),
@@ -72,11 +103,10 @@ export async function produceSong(tracks: TrackRecording[]): Promise<ProductionR
   if (melodyNotes.length === 0) {
     const fallback = decoded.find(({ recording }) => recording.type !== "drums");
     if (fallback) {
-      const fallbackSync = syncByTrack[fallback.recording.type];
       melodyNotes = quantizeNotes(
         scaleNoteTimes(
-          shiftNotes(extractNotes(fallback.buffer), fallbackSync.trimStartSec),
-          fallbackSync.tempoScale,
+          shiftNotes(extractNotes(fallback.buffer), syncByTrack[fallback.recording.type].trimStartSec),
+          syncByTrack[fallback.recording.type].tempoScale,
         ),
         masterBpm,
       );
@@ -84,8 +114,11 @@ export async function produceSong(tracks: TrackRecording[]): Promise<ProductionR
   }
 
   const maxDuration = Math.max(
-    ...decoded.map(({ buffer, recording }) =>
-      getEffectiveDuration(buffer, syncByTrack[recording.type]),
+    ensureMinDuration(
+      decoded.reduce((longest, { buffer, recording }) => {
+        const duration = getEffectiveDuration(buffer, syncByTrack[recording.type]);
+        return Math.max(longest, duration);
+      }, 0),
     ),
   );
 
@@ -105,19 +138,29 @@ export async function produceSong(tracks: TrackRecording[]): Promise<ProductionR
     key,
   };
 
-  const produced = await Promise.all(
-    decoded.map(async ({ recording, buffer }) => {
-      const syncSettings = syncByTrack[recording.type];
-      return produceTrack({ recording, buffer, syncSettings, context });
-    }),
-  );
+  const produced: TrackRecording[] = [];
+
+  for (const { recording, buffer } of decoded) {
+    const syncSettings = syncByTrack[recording.type];
+    const { track, warning } = await produceTrackSafely({
+      recording,
+      buffer,
+      syncSettings,
+      context,
+    });
+    produced.push(track);
+    if (warning) warnings.push(warning);
+  }
 
   const producedByType = new Map(produced.map((track) => [track.type, track]));
 
   return {
-    masterBpm,
-    harmony,
-    tracks: tracks.map((track) => producedByType.get(track.type) ?? track),
+    result: {
+      masterBpm,
+      harmony,
+      tracks: tracks.map((track) => producedByType.get(track.type) ?? track),
+    },
+    warnings,
   };
 }
 
@@ -139,40 +182,151 @@ function chordLabelToRoot(label: string): number {
   return match ? names.indexOf(match[1]) : 0;
 }
 
+async function produceTrackSafely(
+  input: ProduceTrackInput,
+): Promise<{ track: TrackRecording; warning?: string }> {
+  try {
+    const track = await produceTrack(input);
+    return { track };
+  } catch {
+    try {
+      const track = await produceTrackFallback(input);
+      return {
+        track,
+        warning: `${capitalize(input.recording.type)} used a simplified fallback mix.`,
+      };
+    } catch {
+      throw new Error(`Could not produce ${input.recording.type} layer.`);
+    }
+  }
+}
+
 async function produceTrack({
   recording,
   buffer,
   syncSettings,
   context,
 }: ProduceTrackInput): Promise<TrackRecording> {
-  const { instrument } = recording;
+  const duration = ensureMinDuration(getEffectiveDuration(buffer, syncSettings));
   let renderedBuffer: AudioBuffer;
   let noteCount: number | null = null;
 
-  if (instrument === "original") {
+  if (recording.instrument === "original") {
     renderedBuffer = await renderOriginalTrack(
       buffer,
-      syncSettings.trimStartSec,
+      safeTrimStart(syncSettings.trimStartSec, buffer.duration),
       syncSettings.tempoScale,
     );
-  } else if (instrument === "drum-kit") {
-    const onsets = shiftOnsets(
-      detectOnsets(buffer),
-      syncSettings.trimStartSec,
-      syncSettings.tempoScale,
-    );
+  } else if (recording.instrument === "drum-kit") {
+    const onsets = resolveDrumOnsets(buffer, syncSettings, context.masterBpm, duration);
     noteCount = onsets.length;
-    const duration = getEffectiveDuration(buffer, syncSettings);
     renderedBuffer = await renderInstrumentTrack([], onsets, "drum-kit", duration);
   } else {
-    const notes = buildMusicalNotes(recording.type, buffer, syncSettings, context);
+    const notes = resolveMusicalNotes(recording.type, buffer, syncSettings, context);
     noteCount = notes.length;
-    const duration = getEffectiveDuration(buffer, syncSettings);
-    renderedBuffer = await renderInstrumentTrack(notes, [], instrument, duration);
+
+    if (notes.length === 0) {
+      renderedBuffer = await renderOriginalTrack(
+        buffer,
+        safeTrimStart(syncSettings.trimStartSec, buffer.duration),
+        syncSettings.tempoScale,
+      );
+    } else {
+      renderedBuffer = await renderInstrumentTrack(notes, [], recording.instrument, duration);
+    }
   }
 
   renderedBuffer = await prependSilence(renderedBuffer, syncSettings.startDelaySec);
+  return finalizeTrack(recording, syncSettings, renderedBuffer, noteCount);
+}
 
+async function produceTrackFallback({
+  recording,
+  buffer,
+  syncSettings,
+}: ProduceTrackInput): Promise<TrackRecording> {
+  const duration = ensureMinDuration(getEffectiveDuration(buffer, syncSettings));
+  let renderedBuffer: AudioBuffer;
+
+  try {
+    renderedBuffer = await renderOriginalTrack(
+      buffer,
+      safeTrimStart(syncSettings.trimStartSec, buffer.duration),
+      syncSettings.tempoScale,
+    );
+  } catch {
+    renderedBuffer = await renderSilentTrack(duration);
+  }
+
+  renderedBuffer = await prependSilence(renderedBuffer, syncSettings.startDelaySec);
+  return finalizeTrack(recording, syncSettings, renderedBuffer, 0);
+}
+
+function resolveDrumOnsets(
+  buffer: AudioBuffer,
+  syncSettings: SyncSettings,
+  bpm: number,
+  duration: number,
+): number[] {
+  const onsets = shiftOnsets(
+    detectOnsets(buffer),
+    syncSettings.trimStartSec,
+    syncSettings.tempoScale,
+  );
+
+  return onsets.length > 0 ? onsets : generateDefaultBeatGrid(bpm, duration);
+}
+
+function resolveMusicalNotes(
+  type: TrackType,
+  buffer: AudioBuffer,
+  syncSettings: SyncSettings,
+  context: ProduceContext,
+): NoteEvent[] {
+  const rawNotes = scaleNoteTimes(
+    shiftNotes(extractNotes(buffer), syncSettings.trimStartSec),
+    syncSettings.tempoScale,
+  );
+
+  if (type === "melody") {
+    return quantizeNotes(
+      rawNotes.length > 0 ? rawNotes : generateChordPad(context.chordSegments, context.masterBpm),
+      context.masterBpm,
+    );
+  }
+
+  if (type === "harmony") {
+    const notes =
+      rawNotes.length >= 2
+        ? snapNotesToHarmony(rawNotes, context.chordSegments, context.key)
+        : generateHarmonyFromMelody(
+            context.melodyNotes,
+            context.chordSegments,
+            context.key,
+          );
+    return quantizeNotes(
+      notes.length > 0 ? notes : generateChordPad(context.chordSegments, context.masterBpm),
+      context.masterBpm,
+    );
+  }
+
+  if (type === "bass") {
+    const notes =
+      rawNotes.length >= 2
+        ? snapNotesToBass(rawNotes, context.chordSegments)
+        : generateBassLine(context.chordSegments, context.masterBpm);
+    return quantizeNotes(notes, context.masterBpm);
+  }
+
+  return quantizeNotes(rawNotes, context.masterBpm);
+}
+
+function finalizeTrack(
+  recording: TrackRecording,
+  syncSettings: SyncSettings,
+  renderedBuffer: AudioBuffer,
+  noteCount: number | null,
+): TrackRecording {
   const producedBlob = audioBufferToBlob(renderedBuffer);
   const producedAudioUrl = URL.createObjectURL(producedBlob);
 
@@ -185,42 +339,8 @@ async function produceTrack({
   };
 }
 
-function buildMusicalNotes(
-  type: TrackType,
-  buffer: AudioBuffer,
-  syncSettings: SyncSettings,
-  context: ProduceContext,
-): NoteEvent[] {
-  const rawNotes = scaleNoteTimes(
-    shiftNotes(extractNotes(buffer), syncSettings.trimStartSec),
-    syncSettings.tempoScale,
-  );
-
-  if (type === "melody") {
-    return quantizeNotes(rawNotes, context.masterBpm);
-  }
-
-  if (type === "harmony") {
-    const notes =
-      rawNotes.length >= 3
-        ? snapNotesToHarmony(rawNotes, context.chordSegments, context.key)
-        : generateHarmonyFromMelody(
-            context.melodyNotes,
-            context.chordSegments,
-            context.key,
-          );
-    return quantizeNotes(notes, context.masterBpm);
-  }
-
-  if (type === "bass") {
-    const notes =
-      rawNotes.length >= 3
-        ? snapNotesToBass(rawNotes, context.chordSegments)
-        : generateBassLine(context.chordSegments, context.masterBpm);
-    return quantizeNotes(notes, context.masterBpm);
-  }
-
-  return quantizeNotes(rawNotes, context.masterBpm);
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 export function revokeProducedUrls(tracks: TrackRecording[]) {

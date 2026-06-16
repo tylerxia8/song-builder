@@ -8,7 +8,7 @@ import { TrackCard } from "@/components/TrackCard";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { exportSongAsMp3, exportSongAsWav } from "@/lib/audio/export";
 import { playSingleTrack, playSyncedTracks } from "@/lib/audio/playback";
-import { produceSong, revokeProducedUrls } from "@/lib/audio/produce";
+import { produceSongWithSummary, revokeProducedUrls } from "@/lib/audio/produce";
 import { createEmptyTracks, TRACK_DEFINITIONS } from "@/lib/tracks";
 import type { HarmonyAnalysis, InstrumentId, TrackRecording, TrackType } from "@/lib/types";
 
@@ -169,12 +169,24 @@ export function StudioWorkspace() {
 
     try {
       revokeProducedUrls(tracksRef.current);
-      const result = await produceSong(tracksRef.current);
+      const { result, warnings } = await produceSongWithSummary(tracksRef.current);
       setTracks(result.tracks);
       setMasterBpm(result.masterBpm);
       setHarmony(result.harmony);
-    } catch {
-      setProduceError("Production failed. Try re-recording with clearer timing.");
+
+      if (warnings.length > 0) {
+        setProduceError(
+          `Produced with adjustments: ${warnings.slice(0, 2).join(" ")}${
+            warnings.length > 2 ? " …" : ""
+          }`,
+        );
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Production failed unexpectedly.";
+      setProduceError(`${message} Try recording again, or use shorter 5–15s takes.`);
       setTracks((current) =>
         current.map((track) =>
           track.audioBlob && track.status === "processing"
@@ -272,7 +284,15 @@ export function StudioWorkspace() {
             </p>
             <p className="mt-1 text-sm text-zinc-400">{activeDefinition.hint}</p>
             {error && <p className="mt-2 text-sm text-red-300">{error}</p>}
-            {produceError && <p className="mt-2 text-sm text-red-300">{produceError}</p>}
+            {produceError && (
+              <p
+                className={`mt-2 text-sm ${
+                  isProduced ? "text-amber-300" : "text-red-300"
+                }`}
+              >
+                {produceError}
+              </p>
+            )}
             {exportError && <p className="mt-2 text-sm text-red-300">{exportError}</p>}
             {masterBpm && !harmony && (
               <p className="mt-2 text-sm text-violet-300">Autofit complete · ~{masterBpm} BPM</p>

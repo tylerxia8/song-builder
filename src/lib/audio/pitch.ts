@@ -3,7 +3,7 @@ import type { NoteEvent } from "@/lib/types";
 
 const MIN_PITCH = 70;
 const MAX_PITCH = 1800;
-const MIN_CLARITY = 0.82;
+const MIN_CLARITY = 0.72;
 const WINDOW_SIZE = 4096;
 const HOP_SIZE = 1024;
 

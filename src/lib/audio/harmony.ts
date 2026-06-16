@@ -83,12 +83,13 @@ function inferChordProgression(
   bpm: number,
   duration: number,
 ): ChordSegment[] {
+  const safeDuration = Math.max(60 / bpm, duration);
   const beatDuration = 60 / bpm;
   const segmentDuration = beatDuration * 2;
   const diatonic = key.mode === "major" ? DIATONIC_MAJOR : DIATONIC_MINOR;
   const chords: ChordSegment[] = [];
 
-  for (let time = 0; time < duration; time += segmentDuration) {
+  for (let time = 0; time < safeDuration; time += segmentDuration) {
     const segmentNotes = notes.filter(
       (note) => note.time >= time && note.time < time + segmentDuration,
     );
@@ -116,7 +117,7 @@ function inferChordProgression(
     chords.push({ time, label: best.label, rootPc: labelToRootPc(best.label) });
   }
 
-  return dedupeAdjacentChords(chords);
+  return dedupeAdjacentChords(chords.length > 0 ? chords : [{ time: 0, label: NOTE_NAMES[key.root], rootPc: key.root }]);
 }
 
 function dedupeAdjacentChords(chords: ChordSegment[]): ChordSegment[] {
@@ -139,6 +140,10 @@ function labelToRootPc(label: string): number {
 }
 
 export function getChordAtTime(chords: ChordSegment[], time: number): ChordSegment {
+  if (chords.length === 0) {
+    return { time: 0, label: "C", rootPc: 0 };
+  }
+
   let current = chords[0];
   for (const chord of chords) {
     if (chord.time <= time) current = chord;
@@ -191,6 +196,10 @@ export function generateHarmonyFromMelody(
   chords: ChordSegment[],
   key: { root: number; mode: "major" | "minor" },
 ): NoteEvent[] {
+  if (melodyNotes.length === 0) {
+    return generateChordPad(chords, 120);
+  }
+
   const diatonic = key.mode === "major" ? DIATONIC_MAJOR : DIATONIC_MINOR;
 
   return melodyNotes.map((note) => {
@@ -226,10 +235,11 @@ export function snapNotesToBass(
 }
 
 export function generateBassLine(chords: ChordSegment[], bpm: number): NoteEvent[] {
+  const safeChords = chords.length > 0 ? chords : [{ time: 0, label: "C", rootPc: 0 }];
   const beatDuration = 60 / bpm;
   const notes: NoteEvent[] = [];
 
-  chords.forEach((chord) => {
+  safeChords.forEach((chord) => {
     const rootMidi = chord.rootPc + 12 * 2;
     notes.push({
       time: chord.time,
@@ -244,6 +254,17 @@ export function generateBassLine(chords: ChordSegment[], bpm: number): NoteEvent
   });
 
   return notes;
+}
+
+export function generateChordPad(chords: ChordSegment[], bpm: number): NoteEvent[] {
+  const safeChords = chords.length > 0 ? chords : [{ time: 0, label: "C", rootPc: 0 }];
+  const beatDuration = 60 / bpm;
+
+  return safeChords.map((chord) => ({
+    time: chord.time,
+    midi: chord.rootPc + 55,
+    duration: Math.max(beatDuration, beatDuration * 1.8),
+  }));
 }
 
 function findNearestMidi(candidates: number[], target: number): number {

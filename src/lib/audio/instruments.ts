@@ -1,4 +1,5 @@
 import type { InstrumentId, NoteEvent } from "@/lib/types";
+import { ensureMinDuration } from "./utils";
 
 type ToneModule = typeof import("tone");
 
@@ -19,18 +20,52 @@ export async function renderInstrumentTrack(
   duration: number,
 ): Promise<AudioBuffer> {
   const Tone = await import("tone");
-  await Tone.start();
+  const renderDuration = ensureMinDuration(duration) + 0.6;
 
-  const rendered = await Tone.Offline(async () => {
-    const chain = createMasterChain(Tone);
+  try {
+    const rendered = await Tone.Offline(async () => {
+      const chain = await createMasterChain(Tone);
+
+      if (instrument === "drum-kit") {
+        renderDrums(Tone, onsets, chain as unknown as InstanceType<ToneModule["Gain"]>);
+        return;
+      }
+
+      const voice = createInstrument(Tone, instrument);
+      voice.connect(chain);
+
+      notes.forEach((note) => {
+        voice.triggerAttackRelease(
+          Tone.Frequency(note.midi, "midi").toFrequency(),
+          Math.max(0.1, note.duration * 0.94),
+          note.time + 0.02,
+        );
+      });
+    }, renderDuration);
+
+    return rendered.get() as AudioBuffer;
+  } catch {
+    return renderDryInstrumentTrack(Tone, notes, onsets, instrument, renderDuration);
+  }
+}
+
+async function renderDryInstrumentTrack(
+  Tone: ToneModule,
+  notes: NoteEvent[],
+  onsets: number[],
+  instrument: InstrumentId,
+  renderDuration: number,
+): Promise<AudioBuffer> {
+  const rendered = await Tone.Offline(() => {
+    const bus = new Tone.Gain(0.9).toDestination();
 
     if (instrument === "drum-kit") {
-      renderDrums(Tone, onsets, chain);
+      renderDrums(Tone, onsets, bus);
       return;
     }
 
     const voice = createInstrument(Tone, instrument);
-    voice.connect(chain);
+    voice.connect(bus);
 
     notes.forEach((note) => {
       voice.triggerAttackRelease(
@@ -39,19 +74,29 @@ export async function renderInstrumentTrack(
         note.time + 0.02,
       );
     });
-  }, duration + 0.6);
+  }, renderDuration);
 
   return rendered.get() as AudioBuffer;
 }
 
-function createMasterChain(Tone: ToneModule) {
-  const reverb = new Tone.Reverb({ decay: 2.8, preDelay: 0.02, wet: 0.24 });
-  const compressor = new Tone.Compressor({ threshold: -20, ratio: 3.5, attack: 0.004, release: 0.18 });
+async function createMasterChain(Tone: ToneModule): Promise<InstanceType<ToneModule["Compressor"]>> {
+  const compressor = new Tone.Compressor({
+    threshold: -20,
+    ratio: 3.5,
+    attack: 0.004,
+    release: 0.18,
+  });
   const limiter = new Tone.Limiter(-1);
-
-  reverb.connect(limiter);
   limiter.toDestination();
-  compressor.connect(reverb);
+
+  try {
+    const reverb = new Tone.Reverb({ decay: 2.8, preDelay: 0.02, wet: 0.24 });
+    await reverb.generate();
+    reverb.connect(limiter);
+    compressor.connect(reverb);
+  } catch {
+    compressor.connect(limiter);
+  }
 
   return compressor;
 }
@@ -85,7 +130,14 @@ function createInstrument(Tone: ToneModule, instrument: InstrumentId): ToneInstr
         volume: -8,
         oscillator: { type: "square" },
         filter: { Q: 2, type: "lowpass", rolloff: -24 },
-        filterEnvelope: { attack: 0.04, decay: 0.2, sustain: 0.45, release: 0.5, baseFrequency: 180, octaves: 2.2 },
+        filterEnvelope: {
+          attack: 0.04,
+          decay: 0.2,
+          sustain: 0.45,
+          release: 0.5,
+          baseFrequency: 180,
+          octaves: 2.2,
+        },
         envelope: { attack: 0.03, decay: 0.15, sustain: 0.55, release: 0.35 },
       }) as unknown as ToneInstrument;
     case "synth":
@@ -98,9 +150,13 @@ function createInstrument(Tone: ToneModule, instrument: InstrumentId): ToneInstr
   }
 }
 
-function renderDrums(Tone: ToneModule, onsets: number[], chain: ReturnType<typeof createMasterChain>) {
+function renderDrums(
+  Tone: ToneModule,
+  onsets: number[],
+  destination: InstanceType<ToneModule["Gain"]>,
+) {
   const drumBus = new Tone.Gain(0.92);
-  drumBus.connect(chain);
+  drumBus.connect(destination);
 
   const kick = new Tone.MembraneSynth({
     volume: -2,
@@ -148,7 +204,10 @@ export async function renderOriginalTrack(
   trimStartSec: number,
   tempoScale: number,
 ): Promise<AudioBuffer> {
-  const duration = Math.max(0.1, (buffer.duration - trimStartSec) / tempoScale);
+  const trim = Math.min(Math.max(0, trimStartSec), Math.max(0, buffer.duration - 0.05));
+  const scale = Math.min(1.35, Math.max(0.75, tempoScale || 1));
+  const duration = ensureMinDuration((buffer.duration - trim) / scale);
+
   const offline = new OfflineAudioContext(
     1,
     Math.ceil(duration * buffer.sampleRate),
@@ -156,9 +215,9 @@ export async function renderOriginalTrack(
   );
   const source = offline.createBufferSource();
   source.buffer = buffer;
-  source.playbackRate.value = tempoScale;
+  source.playbackRate.value = scale;
   source.connect(offline.destination);
-  source.start(0, trimStartSec);
+  source.start(0, trim);
   return offline.startRendering();
 }
 
@@ -177,5 +236,15 @@ export async function prependSilence(
   source.buffer = buffer;
   source.connect(offline.destination);
   source.start(delaySec);
+  return offline.startRendering();
+}
+
+export async function renderSilentTrack(duration: number): Promise<AudioBuffer> {
+  const renderDuration = ensureMinDuration(duration);
+  const offline = new OfflineAudioContext(
+    1,
+    Math.ceil(renderDuration * 44100),
+    44100,
+  );
   return offline.startRendering();
 }

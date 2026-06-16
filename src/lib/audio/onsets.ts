@@ -1,4 +1,4 @@
-export function detectOnsets(buffer: AudioBuffer, threshold = 0.015): number[] {
+export function detectOnsets(buffer: AudioBuffer, threshold = 0.008): number[] {
   const data = buffer.getChannelData(0);
   const sampleRate = buffer.sampleRate;
   const frameSize = 1024;
