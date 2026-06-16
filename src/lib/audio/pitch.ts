@@ -3,9 +3,9 @@ import type { NoteEvent } from "@/lib/types";
 
 const MIN_PITCH = 70;
 const MAX_PITCH = 1800;
-const MIN_CLARITY = 0.85;
+const MIN_CLARITY = 0.82;
 const WINDOW_SIZE = 4096;
-const HOP_SIZE = 2048;
+const HOP_SIZE = 1024;
 
 export function extractNotes(buffer: AudioBuffer): NoteEvent[] {
   const channelData = buffer.getChannelData(0);

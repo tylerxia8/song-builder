@@ -2,20 +2,25 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChordSuggestions } from "@/components/ChordSuggestions";
 import { RecordButton } from "@/components/RecordButton";
 import { TrackCard } from "@/components/TrackCard";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
+import { exportSongAsMp3, exportSongAsWav } from "@/lib/audio/export";
 import { playSingleTrack, playSyncedTracks } from "@/lib/audio/playback";
 import { produceSong, revokeProducedUrls } from "@/lib/audio/produce";
 import { createEmptyTracks, TRACK_DEFINITIONS } from "@/lib/tracks";
-import type { InstrumentId, TrackRecording, TrackType } from "@/lib/types";
+import type { HarmonyAnalysis, InstrumentId, TrackRecording, TrackType } from "@/lib/types";
 
 export function StudioWorkspace() {
   const [tracks, setTracks] = useState<TrackRecording[]>(() => createEmptyTracks());
   const [activeTrack, setActiveTrack] = useState<TrackType>("melody");
   const [masterBpm, setMasterBpm] = useState<number | null>(null);
+  const [harmony, setHarmony] = useState<HarmonyAnalysis | null>(null);
   const [isProducing, setIsProducing] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [produceError, setProduceError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const { isRecording, error, startRecording, stopRecording } = useAudioRecorder();
   const stopPlaybackRef = useRef<(() => void) | null>(null);
   const singlePlaybackRef = useRef<HTMLAudioElement | null>(null);
@@ -51,6 +56,11 @@ export function StudioWorkspace() {
     singlePlaybackRef.current = null;
   }, []);
 
+  const resetProductionState = useCallback(() => {
+    setMasterBpm(null);
+    setHarmony(null);
+  }, []);
+
   const updateTrack = useCallback(
     (type: TrackType, updates: Partial<TrackRecording>) => {
       setTracks((current) =>
@@ -78,8 +88,8 @@ export function StudioWorkspace() {
       producedAudioUrl: null,
       noteCount: null,
     });
-    setMasterBpm(null);
-  }, [activeTrack, stopRecording, updateTrack]);
+    resetProductionState();
+  }, [activeTrack, resetProductionState, stopRecording, updateTrack]);
 
   const handlePlayTrack = useCallback(
     async (type: TrackType) => {
@@ -109,9 +119,9 @@ export function StudioWorkspace() {
         noteCount: null,
         instrument: TRACK_DEFINITIONS.find((item) => item.type === type)!.defaultInstrument,
       });
-      setMasterBpm(null);
+      resetProductionState();
     },
-    [tracks, updateTrack],
+    [resetProductionState, tracks, updateTrack],
   );
 
   const handleInstrumentChange = useCallback(
@@ -128,9 +138,9 @@ export function StudioWorkspace() {
         producedAudioUrl: null,
         noteCount: null,
       });
-      setMasterBpm(null);
+      resetProductionState();
     },
-    [tracks, updateTrack],
+    [resetProductionState, tracks, updateTrack],
   );
 
   const handlePlayRaw = useCallback(async () => {
@@ -149,6 +159,7 @@ export function StudioWorkspace() {
     stopAllPlayback();
     setIsProducing(true);
     setProduceError(null);
+    setExportError(null);
 
     setTracks((current) =>
       current.map((track) =>
@@ -161,6 +172,7 @@ export function StudioWorkspace() {
       const result = await produceSong(tracksRef.current);
       setTracks(result.tracks);
       setMasterBpm(result.masterBpm);
+      setHarmony(result.harmony);
     } catch {
       setProduceError("Production failed. Try re-recording with clearer timing.");
       setTracks((current) =>
@@ -175,6 +187,29 @@ export function StudioWorkspace() {
     }
   }, [isProducing, recordedCount, stopAllPlayback]);
 
+  const handleExport = useCallback(
+    async (format: "wav" | "mp3") => {
+      if (!isProduced || isExporting) return;
+
+      stopAllPlayback();
+      setIsExporting(true);
+      setExportError(null);
+
+      try {
+        if (format === "wav") {
+          await exportSongAsWav(tracksRef.current);
+        } else {
+          await exportSongAsMp3(tracksRef.current);
+        }
+      } catch {
+        setExportError("Export failed. Produce your song first, then try again.");
+      } finally {
+        setIsExporting(false);
+      }
+    },
+    [isExporting, isProduced, stopAllPlayback],
+  );
+
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-3xl flex-col px-4 pb-8 pt-6 sm:px-6">
       <header className="mb-8">
@@ -188,8 +223,8 @@ export function StudioWorkspace() {
           Your studio
         </h1>
         <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-400 sm:text-base">
-          Record your layers, pick an instrument for each one, then autofit and produce so
-          melodies and beats line up.
+          Record layers, choose instruments, autofit timing, and export a polished mix with smart
+          chord-aware harmony.
         </p>
 
         <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-zinc-300">
@@ -200,6 +235,12 @@ export function StudioWorkspace() {
           <span className="font-medium text-violet-300">Song</span>
         </div>
       </header>
+
+      {harmony && masterBpm && (
+        <div className="mb-6">
+          <ChordSuggestions harmony={harmony} masterBpm={masterBpm} />
+        </div>
+      )}
 
       <section className="space-y-3">
         {TRACK_DEFINITIONS.map((definition) => {
@@ -232,16 +273,15 @@ export function StudioWorkspace() {
             <p className="mt-1 text-sm text-zinc-400">{activeDefinition.hint}</p>
             {error && <p className="mt-2 text-sm text-red-300">{error}</p>}
             {produceError && <p className="mt-2 text-sm text-red-300">{produceError}</p>}
-            {masterBpm && (
-              <p className="mt-2 text-sm text-violet-300">
-                Autofit complete · ~{masterBpm} BPM
-              </p>
+            {exportError && <p className="mt-2 text-sm text-red-300">{exportError}</p>}
+            {masterBpm && !harmony && (
+              <p className="mt-2 text-sm text-violet-300">Autofit complete · ~{masterBpm} BPM</p>
             )}
           </div>
 
           <RecordButton
             isRecording={isRecording}
-            disabled={isProducing}
+            disabled={isProducing || isExporting}
             onStart={handleStartRecording}
             onStop={handleStopRecording}
           />
@@ -254,7 +294,7 @@ export function StudioWorkspace() {
             </p>
             <button
               type="button"
-              disabled={recordedCount === 0}
+              disabled={recordedCount === 0 || isProducing}
               onClick={handlePlayRaw}
               className="rounded-xl border border-white/10 px-4 py-2.5 text-sm font-semibold text-white transition hover:border-white/20 disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -278,6 +318,25 @@ export function StudioWorkspace() {
               className="flex-1 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-zinc-950 transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Play produced song
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <button
+              type="button"
+              disabled={!isProduced || isExporting}
+              onClick={() => handleExport("wav")}
+              className="flex-1 rounded-xl border border-white/10 px-4 py-3 text-sm font-semibold text-white transition hover:border-white/20 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {isExporting ? "Exporting…" : "Download WAV"}
+            </button>
+            <button
+              type="button"
+              disabled={!isProduced || isExporting}
+              onClick={() => handleExport("mp3")}
+              className="flex-1 rounded-xl border border-violet-400/30 bg-violet-500/10 px-4 py-3 text-sm font-semibold text-violet-100 transition hover:bg-violet-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Download MP3
             </button>
           </div>
         </div>

@@ -20,12 +20,25 @@ export interface TrackDefinition {
 }
 
 export interface SyncSettings {
-  /** Seconds to trim from the start of the track (negative offset alignment). */
   trimStartSec: number;
-  /** Delay after the master clock before this track starts. */
   startDelaySec: number;
-  /** Playback rate to match the master tempo. */
   tempoScale: number;
+}
+
+export interface ChordSegment {
+  time: number;
+  label: string;
+  rootPc: number;
+}
+
+export interface ChordSuggestion {
+  time: number;
+  label: string;
+}
+
+export interface HarmonyAnalysis {
+  detectedKey: string;
+  chordProgression: ChordSuggestion[];
 }
 
 export interface TrackRecording {
@@ -42,6 +55,7 @@ export interface TrackRecording {
 
 export interface ProductionResult {
   masterBpm: number;
+  harmony: HarmonyAnalysis;
   tracks: TrackRecording[];
 }
 
@@ -50,3 +64,5 @@ export interface NoteEvent {
   midi: number;
   duration: number;
 }
+
+export type ExportFormat = "wav" | "mp3";

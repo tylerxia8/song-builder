@@ -16,10 +16,8 @@ export function encodeWav(buffer: AudioBuffer): ArrayBuffer {
   const sampleRate = buffer.sampleRate;
   const format = 1;
   const bitDepth = 16;
-
-  const samples = buffer.getChannelData(0);
-  const length = samples.length;
-  const dataLength = length * 2;
+  const length = buffer.length;
+  const dataLength = length * numChannels * 2;
   const arrayBuffer = new ArrayBuffer(44 + dataLength);
   const view = new DataView(arrayBuffer);
 
@@ -37,11 +35,17 @@ export function encodeWav(buffer: AudioBuffer): ArrayBuffer {
   writeString(view, 36, "data");
   view.setUint32(40, dataLength, true);
 
+  const channels = Array.from({ length: numChannels }, (_, index) =>
+    buffer.getChannelData(index),
+  );
+
   let offset = 44;
   for (let i = 0; i < length; i += 1) {
-    const sample = Math.max(-1, Math.min(1, samples[i]));
-    view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
-    offset += 2;
+    for (let channel = 0; channel < numChannels; channel += 1) {
+      const sample = Math.max(-1, Math.min(1, channels[channel][i]));
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+      offset += 2;
+    }
   }
 
   return arrayBuffer;

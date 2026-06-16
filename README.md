@@ -21,8 +21,8 @@ SongBuilder introduces a third category: the **AI Music Producer**. Rather than 
 ## Tech Stack
 
 - **Frontend:** Next.js 16, React 19, TypeScript, Tailwind CSS
-- **Audio:** Web Audio API, MediaRecorder, Tone.js, Pitchy
-- **Planned:** Smarter harmony generation, export polished song, mobile app
+- **Audio:** Web Audio API, MediaRecorder, Tone.js, Pitchy, LameJS
+- **Planned:** AI arrangement suggestions, sample-based instruments, mobile app
 
 ## Getting Started
 
@@ -50,13 +50,15 @@ src/
 - Browser microphone recording, playback, and waveform preview
 - **Instrument selection** per layer (piano, guitar, violin, synth, brass, drum kit, or original voice)
 - **Autofit & produce** — aligns layer timing and tempo, converts hums/noises into selected instruments
+- **Harmony analysis** — detects key and chord progression, snaps harmony/bass to chord tones
+- **Richer instruments** — reverb, compression, and improved synth voices per instrument
+- **Export** — download the produced mix as WAV or MP3
 - Synced playback of raw layers or the produced song
 
 ## Roadmap
 
-- [ ] Smarter chord and harmony suggestions
-- [ ] Higher-fidelity instrument samples
-- [ ] Export polished song (WAV/MP3)
+- [ ] AI-powered arrangement suggestions
+- [ ] Sample-based instrument libraries
 - [ ] Mobile-native recording experience
 
 ## License
