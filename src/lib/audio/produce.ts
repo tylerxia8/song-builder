@@ -27,7 +27,9 @@ import {
 } from "./instruments";
 import { detectOnsets } from "./onsets";
 import { extractNotes, scaleNoteTimes, shiftNotes, shiftOnsets } from "./pitch";
+import { applyAutotuneToNotes, renderAutotunedVoice } from "./autotune";
 import { ensureMinDuration, generateDefaultBeatGrid, safeTrimStart } from "./utils";
+import type { ProduceOptions } from "@/lib/types";
 
 interface ProduceContext {
   masterBpm: number;
@@ -35,6 +37,7 @@ interface ProduceContext {
   chordSegments: ChordSegment[];
   melodyNotes: NoteEvent[];
   key: ReturnType<typeof parseKeyLabel>;
+  autotuneEnabled: boolean;
 }
 
 interface ProduceTrackInput {
@@ -53,7 +56,11 @@ export async function produceSong(tracks: TrackRecording[]): Promise<ProductionR
   return (await produceSongWithSummary(tracks)).result;
 }
 
-export async function produceSongWithSummary(tracks: TrackRecording[]): Promise<ProductionSummary> {
+export async function produceSongWithSummary(
+  tracks: TrackRecording[],
+  options: ProduceOptions = {},
+): Promise<ProductionSummary> {
+  const autotuneEnabled = options.autotuneEnabled ?? true;
   const warnings: string[] = [];
   const recordedTracks = tracks.filter((track) => track.audioBlob);
 
@@ -136,6 +143,7 @@ export async function produceSongWithSummary(tracks: TrackRecording[]): Promise<
     chordSegments,
     melodyNotes,
     key,
+    autotuneEnabled,
   };
 
   const produced: TrackRecording[] = [];
@@ -212,11 +220,16 @@ async function produceTrack({
   let noteCount: number | null = null;
 
   if (recording.instrument === "original") {
-    renderedBuffer = await renderOriginalTrack(
-      buffer,
-      safeTrimStart(syncSettings.trimStartSec, buffer.duration),
-      syncSettings.tempoScale,
-    );
+    if (context.autotuneEnabled && recording.type !== "drums") {
+      renderedBuffer = await renderAutotunedOriginal(buffer, recording.type, syncSettings, context);
+      noteCount = null;
+    } else {
+      renderedBuffer = await renderOriginalTrack(
+        buffer,
+        safeTrimStart(syncSettings.trimStartSec, buffer.duration),
+        syncSettings.tempoScale,
+      );
+    }
   } else if (recording.instrument === "drum-kit") {
     const onsets = resolveDrumOnsets(buffer, syncSettings, context.masterBpm, duration);
     noteCount = onsets.length;
@@ -289,10 +302,11 @@ function resolveMusicalNotes(
   );
 
   if (type === "melody") {
-    return quantizeNotes(
+    const notes = quantizeNotes(
       rawNotes.length > 0 ? rawNotes : generateChordPad(context.chordSegments, context.masterBpm),
       context.masterBpm,
     );
+    return maybeAutotuneNotes(type, notes, context);
   }
 
   if (type === "harmony") {
@@ -304,9 +318,13 @@ function resolveMusicalNotes(
             context.chordSegments,
             context.key,
           );
-    return quantizeNotes(
-      notes.length > 0 ? notes : generateChordPad(context.chordSegments, context.masterBpm),
-      context.masterBpm,
+    return maybeAutotuneNotes(
+      type,
+      quantizeNotes(
+        notes.length > 0 ? notes : generateChordPad(context.chordSegments, context.masterBpm),
+        context.masterBpm,
+      ),
+      context,
     );
   }
 
@@ -315,10 +333,67 @@ function resolveMusicalNotes(
       rawNotes.length >= 2
         ? snapNotesToBass(rawNotes, context.chordSegments)
         : generateBassLine(context.chordSegments, context.masterBpm);
-    return quantizeNotes(notes, context.masterBpm);
+    return maybeAutotuneNotes(type, quantizeNotes(notes, context.masterBpm), context);
   }
 
   return quantizeNotes(rawNotes, context.masterBpm);
+}
+
+async function renderAutotunedOriginal(
+  buffer: AudioBuffer,
+  type: TrackType,
+  syncSettings: SyncSettings,
+  context: ProduceContext,
+): Promise<AudioBuffer> {
+  const rawNotes = quantizeNotes(
+    scaleNoteTimes(
+      shiftNotes(extractNotes(buffer), syncSettings.trimStartSec),
+      syncSettings.tempoScale,
+    ),
+    context.masterBpm,
+  );
+
+  if (rawNotes.length === 0) {
+    return renderOriginalTrack(
+      buffer,
+      safeTrimStart(syncSettings.trimStartSec, buffer.duration),
+      syncSettings.tempoScale,
+    );
+  }
+
+  const tunedNotes = applyAutotuneToNotes(
+    type as "melody" | "harmony" | "bass",
+    rawNotes,
+    context.key,
+    context.chordSegments,
+  );
+
+  const autotuned = await renderAutotunedVoice(
+    buffer,
+    rawNotes,
+    tunedNotes,
+    safeTrimStart(syncSettings.trimStartSec, buffer.duration),
+    syncSettings.tempoScale,
+  );
+
+  return renderOriginalTrack(autotuned, 0, 1);
+}
+
+function maybeAutotuneNotes(
+  type: TrackType,
+  notes: NoteEvent[],
+  context: ProduceContext,
+): NoteEvent[] {
+  if (!context.autotuneEnabled || type === "drums" || notes.length === 0) {
+    return notes;
+  }
+
+  return applyAutotuneToNotes(
+    type as "melody" | "harmony" | "bass",
+    notes,
+    context.key,
+    context.chordSegments,
+  );
 }
 
 function finalizeTrack(

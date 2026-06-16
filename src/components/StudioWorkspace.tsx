@@ -21,6 +21,7 @@ export function StudioWorkspace() {
   const [isExporting, setIsExporting] = useState(false);
   const [produceError, setProduceError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [autotuneEnabled, setAutotuneEnabled] = useState(true);
   const { isRecording, error, startRecording, stopRecording } = useAudioRecorder();
   const stopPlaybackRef = useRef<(() => void) | null>(null);
   const singlePlaybackRef = useRef<HTMLAudioElement | null>(null);
@@ -169,7 +170,9 @@ export function StudioWorkspace() {
 
     try {
       revokeProducedUrls(tracksRef.current);
-      const { result, warnings } = await produceSongWithSummary(tracksRef.current);
+      const { result, warnings } = await produceSongWithSummary(tracksRef.current, {
+        autotuneEnabled,
+      });
       setTracks(result.tracks);
       setMasterBpm(result.masterBpm);
       setHarmony(result.harmony);
@@ -197,7 +200,7 @@ export function StudioWorkspace() {
     } finally {
       setIsProducing(false);
     }
-  }, [isProducing, recordedCount, stopAllPlayback]);
+  }, [autotuneEnabled, isProducing, recordedCount, stopAllPlayback]);
 
   const handleExport = useCallback(
     async (format: "wav" | "mp3") => {
@@ -309,9 +312,18 @@ export function StudioWorkspace() {
 
         <div className="mt-5 space-y-3 border-t border-white/10 pt-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-zinc-400">
-              {recordedCount} of {tracks.length} layers captured
-            </p>
+            <label className="flex items-center gap-3 text-sm text-zinc-300">
+              <input
+                type="checkbox"
+                checked={autotuneEnabled}
+                onChange={(event) => {
+                  setAutotuneEnabled(event.target.checked);
+                  resetProductionState();
+                }}
+                className="h-4 w-4 rounded border-white/20 bg-transparent accent-violet-500"
+              />
+              Autotune to key
+            </label>
             <button
               type="button"
               disabled={recordedCount === 0 || isProducing}
@@ -320,6 +332,12 @@ export function StudioWorkspace() {
             >
               Preview raw layers
             </button>
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-zinc-400">
+              {recordedCount} of {tracks.length} layers captured
+            </p>
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row">

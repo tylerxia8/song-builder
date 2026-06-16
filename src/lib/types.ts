@@ -53,6 +53,10 @@ export interface TrackRecording {
   noteCount: number | null;
 }
 
+export interface ProduceOptions {
+  autotuneEnabled?: boolean;
+}
+
 export interface ProductionResult {
   masterBpm: number;
   harmony: HarmonyAnalysis;
