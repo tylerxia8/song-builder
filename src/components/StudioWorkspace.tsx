@@ -5,14 +5,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RecordButton } from "@/components/RecordButton";
 import { TrackCard } from "@/components/TrackCard";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
+import { playSingleTrack, playSyncedTracks } from "@/lib/audio/playback";
+import { produceSong, revokeProducedUrls } from "@/lib/audio/produce";
 import { createEmptyTracks, TRACK_DEFINITIONS } from "@/lib/tracks";
-import type { TrackRecording, TrackType } from "@/lib/types";
+import type { InstrumentId, TrackRecording, TrackType } from "@/lib/types";
 
 export function StudioWorkspace() {
   const [tracks, setTracks] = useState<TrackRecording[]>(() => createEmptyTracks());
   const [activeTrack, setActiveTrack] = useState<TrackType>("melody");
+  const [masterBpm, setMasterBpm] = useState<number | null>(null);
+  const [isProducing, setIsProducing] = useState(false);
+  const [produceError, setProduceError] = useState<string | null>(null);
   const { isRecording, error, startRecording, stopRecording } = useAudioRecorder();
-  const playbackRef = useRef<HTMLAudioElement | null>(null);
+  const stopPlaybackRef = useRef<(() => void) | null>(null);
+  const singlePlaybackRef = useRef<HTMLAudioElement | null>(null);
 
   const activeDefinition = useMemo(
     () => TRACK_DEFINITIONS.find((track) => track.type === activeTrack)!,
@@ -20,17 +26,29 @@ export function StudioWorkspace() {
   );
 
   const recordedCount = tracks.filter((track) => track.audioUrl).length;
+  const isProduced = tracks.some((track) => track.status === "ready");
   const tracksRef = useRef(tracks);
-  tracksRef.current = tracks;
+
+  useEffect(() => {
+    tracksRef.current = tracks;
+  }, [tracks]);
 
   useEffect(() => {
     return () => {
+      stopPlaybackRef.current?.();
+      singlePlaybackRef.current?.pause();
       tracksRef.current.forEach((track) => {
-        if (track.audioUrl) {
-          URL.revokeObjectURL(track.audioUrl);
-        }
+        if (track.audioUrl) URL.revokeObjectURL(track.audioUrl);
       });
+      revokeProducedUrls(tracksRef.current);
     };
+  }, []);
+
+  const stopAllPlayback = useCallback(() => {
+    stopPlaybackRef.current?.();
+    stopPlaybackRef.current = null;
+    singlePlaybackRef.current?.pause();
+    singlePlaybackRef.current = null;
   }, []);
 
   const updateTrack = useCallback(
@@ -43,8 +61,9 @@ export function StudioWorkspace() {
   );
 
   const handleStartRecording = useCallback(async () => {
+    stopAllPlayback();
     await startRecording();
-  }, [startRecording]);
+  }, [startRecording, stopAllPlayback]);
 
   const handleStopRecording = useCallback(async () => {
     const result = await stopRecording();
@@ -55,51 +74,106 @@ export function StudioWorkspace() {
       audioUrl: result.url,
       duration: result.duration,
       status: "recorded",
+      syncSettings: null,
+      producedAudioUrl: null,
+      noteCount: null,
     });
+    setMasterBpm(null);
   }, [activeTrack, stopRecording, updateTrack]);
 
   const handlePlayTrack = useCallback(
-    (type: TrackType) => {
+    async (type: TrackType) => {
       const track = tracks.find((item) => item.type === type);
       if (!track?.audioUrl) return;
 
-      if (playbackRef.current) {
-        playbackRef.current.pause();
-      }
-
-      const audio = new Audio(track.audioUrl);
-      playbackRef.current = audio;
-      void audio.play();
+      stopAllPlayback();
+      const mode = track.status === "ready" ? "produced" : "raw";
+      singlePlaybackRef.current = await playSingleTrack(track, mode);
     },
-    [tracks],
+    [tracks, stopAllPlayback],
   );
 
   const handleClearTrack = useCallback(
     (type: TrackType) => {
       const track = tracks.find((item) => item.type === type);
-      if (track?.audioUrl) {
-        URL.revokeObjectURL(track.audioUrl);
-      }
+      if (track?.audioUrl) URL.revokeObjectURL(track.audioUrl);
+      if (track?.producedAudioUrl) URL.revokeObjectURL(track.producedAudioUrl);
 
       updateTrack(type, {
         audioBlob: null,
         audioUrl: null,
         duration: null,
         status: "empty",
+        syncSettings: null,
+        producedAudioUrl: null,
+        noteCount: null,
+        instrument: TRACK_DEFINITIONS.find((item) => item.type === type)!.defaultInstrument,
       });
+      setMasterBpm(null);
     },
     [tracks, updateTrack],
   );
 
-  const handlePlayAll = useCallback(() => {
-    const recordedTracks = tracks.filter((track) => track.audioUrl);
-    if (recordedTracks.length === 0) return;
+  const handleInstrumentChange = useCallback(
+    (type: TrackType, instrument: InstrumentId) => {
+      const track = tracks.find((item) => item.type === type);
+      if (track?.producedAudioUrl) {
+        URL.revokeObjectURL(track.producedAudioUrl);
+      }
 
-    recordedTracks.forEach((track) => {
-      const audio = new Audio(track.audioUrl!);
-      void audio.play();
-    });
-  }, [tracks]);
+      updateTrack(type, {
+        instrument,
+        status: track?.audioBlob ? "recorded" : "empty",
+        syncSettings: null,
+        producedAudioUrl: null,
+        noteCount: null,
+      });
+      setMasterBpm(null);
+    },
+    [tracks, updateTrack],
+  );
+
+  const handlePlayRaw = useCallback(async () => {
+    stopAllPlayback();
+    stopPlaybackRef.current = await playSyncedTracks(tracks, "raw");
+  }, [tracks, stopAllPlayback]);
+
+  const handlePlayProduced = useCallback(async () => {
+    stopAllPlayback();
+    stopPlaybackRef.current = await playSyncedTracks(tracks, "produced");
+  }, [tracks, stopAllPlayback]);
+
+  const handleAutofitAndProduce = useCallback(async () => {
+    if (recordedCount === 0 || isProducing) return;
+
+    stopAllPlayback();
+    setIsProducing(true);
+    setProduceError(null);
+
+    setTracks((current) =>
+      current.map((track) =>
+        track.audioBlob ? { ...track, status: "processing" as const } : track,
+      ),
+    );
+
+    try {
+      revokeProducedUrls(tracksRef.current);
+      const result = await produceSong(tracksRef.current);
+      setTracks(result.tracks);
+      setMasterBpm(result.masterBpm);
+    } catch {
+      setProduceError("Production failed. Try re-recording with clearer timing.");
+      setTracks((current) =>
+        current.map((track) =>
+          track.audioBlob && track.status === "processing"
+            ? { ...track, status: "recorded" as const }
+            : track,
+        ),
+      );
+    } finally {
+      setIsProducing(false);
+    }
+  }, [isProducing, recordedCount, stopAllPlayback]);
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-3xl flex-col px-4 pb-8 pt-6 sm:px-6">
@@ -114,8 +188,8 @@ export function StudioWorkspace() {
           Your studio
         </h1>
         <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-400 sm:text-base">
-          Select a layer, hit record, and capture your idea by voice. Build melody, bass, drums,
-          and harmony one sketch at a time.
+          Record your layers, pick an instrument for each one, then autofit and produce so
+          melodies and beats line up.
         </p>
 
         <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-zinc-300">
@@ -141,6 +215,9 @@ export function StudioWorkspace() {
               onSelect={() => setActiveTrack(definition.type)}
               onPlay={() => handlePlayTrack(definition.type)}
               onClear={() => handleClearTrack(definition.type)}
+              onInstrumentChange={(instrument) =>
+                handleInstrumentChange(definition.type, instrument)
+              }
             />
           );
         })}
@@ -154,27 +231,55 @@ export function StudioWorkspace() {
             </p>
             <p className="mt-1 text-sm text-zinc-400">{activeDefinition.hint}</p>
             {error && <p className="mt-2 text-sm text-red-300">{error}</p>}
+            {produceError && <p className="mt-2 text-sm text-red-300">{produceError}</p>}
+            {masterBpm && (
+              <p className="mt-2 text-sm text-violet-300">
+                Autofit complete · ~{masterBpm} BPM
+              </p>
+            )}
           </div>
 
           <RecordButton
             isRecording={isRecording}
+            disabled={isProducing}
             onStart={handleStartRecording}
             onStop={handleStopRecording}
           />
         </div>
 
-        <div className="mt-5 flex flex-col gap-3 border-t border-white/10 pt-5 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-zinc-400">
-            {recordedCount} of {tracks.length} layers captured
-          </p>
-          <button
-            type="button"
-            disabled={recordedCount === 0}
-            onClick={handlePlayAll}
-            className="rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-zinc-950 transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Preview all layers
-          </button>
+        <div className="mt-5 space-y-3 border-t border-white/10 pt-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-zinc-400">
+              {recordedCount} of {tracks.length} layers captured
+            </p>
+            <button
+              type="button"
+              disabled={recordedCount === 0}
+              onClick={handlePlayRaw}
+              className="rounded-xl border border-white/10 px-4 py-2.5 text-sm font-semibold text-white transition hover:border-white/20 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Preview raw layers
+            </button>
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <button
+              type="button"
+              disabled={recordedCount === 0 || isProducing}
+              onClick={handleAutofitAndProduce}
+              className="flex-1 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {isProducing ? "Autofitting & producing…" : "Autofit & produce"}
+            </button>
+            <button
+              type="button"
+              disabled={!isProduced || isProducing}
+              onClick={handlePlayProduced}
+              className="flex-1 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-zinc-950 transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Play produced song
+            </button>
+          </div>
         </div>
       </section>
     </div>
