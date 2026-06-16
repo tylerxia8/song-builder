@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChordSuggestions } from "@/components/ChordSuggestions";
-import { RecordButton } from "@/components/RecordButton";
-import { TrackCard } from "@/components/TrackCard";
+import { MasterBus } from "@/components/MasterBus";
+import { TimelineRuler } from "@/components/TimelineRuler";
+import { TrackLane } from "@/components/TrackLane";
+import { TransportBar } from "@/components/TransportBar";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { exportSongAsMp3, exportSongAsWav } from "@/lib/audio/export";
 import { playSingleTrack, playSyncedTracks } from "@/lib/audio/playback";
@@ -17,6 +19,7 @@ export function StudioWorkspace() {
   const [activeTrack, setActiveTrack] = useState<TrackType>("melody");
   const [masterBpm, setMasterBpm] = useState<number | null>(null);
   const [harmony, setHarmony] = useState<HarmonyAnalysis | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [isProducing, setIsProducing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [produceError, setProduceError] = useState<string | null>(null);
@@ -34,6 +37,13 @@ export function StudioWorkspace() {
   const recordedCount = tracks.filter((track) => track.audioUrl).length;
   const isProduced = tracks.some((track) => track.status === "ready");
   const tracksRef = useRef(tracks);
+
+  const timelineDuration = useMemo(() => {
+    const durations = tracks
+      .map((track) => track.duration ?? 0)
+      .filter((duration) => duration > 0);
+    return Math.max(16, ...durations, 0);
+  }, [tracks]);
 
   useEffect(() => {
     tracksRef.current = tracks;
@@ -55,6 +65,7 @@ export function StudioWorkspace() {
     stopPlaybackRef.current = null;
     singlePlaybackRef.current?.pause();
     singlePlaybackRef.current = null;
+    setIsPlaying(false);
   }, []);
 
   const resetProductionState = useCallback(() => {
@@ -100,6 +111,7 @@ export function StudioWorkspace() {
       stopAllPlayback();
       const mode = track.status === "ready" ? "produced" : "raw";
       singlePlaybackRef.current = await playSingleTrack(track, mode);
+      setIsPlaying(true);
     },
     [tracks, stopAllPlayback],
   );
@@ -144,15 +156,13 @@ export function StudioWorkspace() {
     [resetProductionState, tracks, updateTrack],
   );
 
-  const handlePlayRaw = useCallback(async () => {
+  const handleTransportPlay = useCallback(async () => {
+    if (recordedCount === 0) return;
     stopAllPlayback();
-    stopPlaybackRef.current = await playSyncedTracks(tracks, "raw");
-  }, [tracks, stopAllPlayback]);
-
-  const handlePlayProduced = useCallback(async () => {
-    stopAllPlayback();
-    stopPlaybackRef.current = await playSyncedTracks(tracks, "produced");
-  }, [tracks, stopAllPlayback]);
+    const mode = isProduced ? "produced" : "raw";
+    stopPlaybackRef.current = await playSyncedTracks(tracks, mode);
+    setIsPlaying(true);
+  }, [isProduced, recordedCount, stopAllPlayback, tracks]);
 
   const handleAutofitAndProduce = useCallback(async () => {
     if (recordedCount === 0 || isProducing) return;
@@ -184,11 +194,9 @@ export function StudioWorkspace() {
           }`,
         );
       }
-    } catch (error) {
+    } catch (err) {
       const message =
-        error instanceof Error && error.message
-          ? error.message
-          : "Production failed unexpectedly.";
+        err instanceof Error && err.message ? err.message : "Production failed unexpectedly.";
       setProduceError(`${message} Try recording again, or use shorter 5–15s takes.`);
       setTracks((current) =>
         current.map((track) =>
@@ -226,49 +234,72 @@ export function StudioWorkspace() {
   );
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-3xl flex-col px-4 pb-8 pt-6 sm:px-6">
-      <header className="mb-8">
-        <Link
-          href="/"
-          className="text-sm font-medium text-violet-300 transition hover:text-violet-200"
-        >
-          ← SongBuilder
-        </Link>
-        <h1 className="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-          Your studio
-        </h1>
-        <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-400 sm:text-base">
-          Record layers, choose instruments, autofit timing, and export a polished mix with smart
-          chord-aware harmony.
-        </p>
-
-        <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-zinc-300">
-          <span className="font-medium text-white">Idea</span>
-          <span aria-hidden="true">→</span>
-          <span className="font-medium text-white">Voice</span>
-          <span aria-hidden="true">→</span>
-          <span className="font-medium text-violet-300">Song</span>
+    <div className="flex min-h-screen flex-col bg-[#0b0b10] text-white">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-[#12121a] px-4 py-3">
+        <div className="flex items-center gap-4">
+          <Link
+            href="/"
+            className="text-xs font-medium uppercase tracking-[0.16em] text-zinc-500 transition hover:text-zinc-300"
+          >
+            SongBuilder
+          </Link>
+          <div>
+            <h1 className="text-sm font-semibold text-white">Untitled Session</h1>
+            <p className="text-[11px] text-zinc-500">Voice-first producer · 4 track lanes</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 text-[11px] font-mono text-zinc-500">
+          <span className="rounded border border-white/10 px-2 py-1">
+            {harmony?.detectedKey ?? "Key —"}
+          </span>
+          <span className="rounded border border-white/10 px-2 py-1">
+            {masterBpm ? `${masterBpm} BPM` : "BPM —"}
+          </span>
         </div>
       </header>
 
-      {harmony && masterBpm && (
-        <div className="mb-6">
-          <ChordSuggestions harmony={harmony} masterBpm={masterBpm} />
+      <TransportBar
+        isRecording={isRecording}
+        isPlaying={isPlaying}
+        isProducing={isProducing}
+        isExporting={isExporting}
+        masterBpm={masterBpm}
+        armedTrackLabel={activeDefinition.label}
+        canPlay={recordedCount > 0}
+        canRecord={!isProducing && !isExporting}
+        onPlay={handleTransportPlay}
+        onStop={stopAllPlayback}
+        onRecordStart={handleStartRecording}
+        onRecordStop={handleStopRecording}
+      />
+
+      {error && (
+        <div className="border-b border-red-500/20 bg-red-500/10 px-4 py-2 text-sm text-red-200">
+          {error}
         </div>
       )}
 
-      <section className="space-y-3">
+      {harmony && masterBpm && <ChordSuggestions harmony={harmony} masterBpm={masterBpm} />}
+
+      <div className="flex-1 overflow-auto daw-scrollbar">
+        <div className="grid grid-cols-[11rem_1fr] border-b border-white/10 sm:grid-cols-[13rem_1fr]">
+          <div className="flex items-center border-r border-white/10 bg-[#101018] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+            Tracks
+          </div>
+          <TimelineRuler bpm={masterBpm ?? 120} durationSec={timelineDuration} />
+        </div>
+
         {TRACK_DEFINITIONS.map((definition) => {
           const recording = tracks.find((track) => track.type === definition.type)!;
 
           return (
-            <TrackCard
+            <TrackLane
               key={definition.type}
               definition={definition}
               recording={recording}
-              isActive={activeTrack === definition.type}
+              isArmed={activeTrack === definition.type}
               isRecording={isRecording && activeTrack === definition.type}
-              onSelect={() => setActiveTrack(definition.type)}
+              onArm={() => setActiveTrack(definition.type)}
               onPlay={() => handlePlayTrack(definition.type)}
               onClear={() => handleClearTrack(definition.type)}
               onInstrumentChange={(instrument) =>
@@ -277,108 +308,25 @@ export function StudioWorkspace() {
             />
           );
         })}
-      </section>
+      </div>
 
-      <section className="sticky bottom-0 mt-8 rounded-3xl border border-white/10 bg-[#12121a]/95 p-5 backdrop-blur">
-        <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-center sm:text-left">
-            <p className="text-sm font-medium text-white">
-              Recording {activeDefinition.label}
-            </p>
-            <p className="mt-1 text-sm text-zinc-400">{activeDefinition.hint}</p>
-            {error && <p className="mt-2 text-sm text-red-300">{error}</p>}
-            {produceError && (
-              <p
-                className={`mt-2 text-sm ${
-                  isProduced ? "text-amber-300" : "text-red-300"
-                }`}
-              >
-                {produceError}
-              </p>
-            )}
-            {exportError && <p className="mt-2 text-sm text-red-300">{exportError}</p>}
-            {masterBpm && !harmony && (
-              <p className="mt-2 text-sm text-violet-300">Autofit complete · ~{masterBpm} BPM</p>
-            )}
-          </div>
-
-          <RecordButton
-            isRecording={isRecording}
-            disabled={isProducing || isExporting}
-            onStart={handleStartRecording}
-            onStop={handleStopRecording}
-          />
-        </div>
-
-        <div className="mt-5 space-y-3 border-t border-white/10 pt-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <label className="flex items-center gap-3 text-sm text-zinc-300">
-              <input
-                type="checkbox"
-                checked={autotuneEnabled}
-                onChange={(event) => {
-                  setAutotuneEnabled(event.target.checked);
-                  resetProductionState();
-                }}
-                className="h-4 w-4 rounded border-white/20 bg-transparent accent-violet-500"
-              />
-              Autotune to key
-            </label>
-            <button
-              type="button"
-              disabled={recordedCount === 0 || isProducing}
-              onClick={handlePlayRaw}
-              className="rounded-xl border border-white/10 px-4 py-2.5 text-sm font-semibold text-white transition hover:border-white/20 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Preview raw layers
-            </button>
-          </div>
-
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-zinc-400">
-              {recordedCount} of {tracks.length} layers captured
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <button
-              type="button"
-              disabled={recordedCount === 0 || isProducing}
-              onClick={handleAutofitAndProduce}
-              className="flex-1 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {isProducing ? "Autofitting & producing…" : "Autofit & produce"}
-            </button>
-            <button
-              type="button"
-              disabled={!isProduced || isProducing}
-              onClick={handlePlayProduced}
-              className="flex-1 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-zinc-950 transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Play produced song
-            </button>
-          </div>
-
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <button
-              type="button"
-              disabled={!isProduced || isExporting}
-              onClick={() => handleExport("wav")}
-              className="flex-1 rounded-xl border border-white/10 px-4 py-3 text-sm font-semibold text-white transition hover:border-white/20 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {isExporting ? "Exporting…" : "Download WAV"}
-            </button>
-            <button
-              type="button"
-              disabled={!isProduced || isExporting}
-              onClick={() => handleExport("mp3")}
-              className="flex-1 rounded-xl border border-violet-400/30 bg-violet-500/10 px-4 py-3 text-sm font-semibold text-violet-100 transition hover:bg-violet-500/20 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Download MP3
-            </button>
-          </div>
-        </div>
-      </section>
+      <MasterBus
+        autotuneEnabled={autotuneEnabled}
+        recordedCount={recordedCount}
+        totalTracks={tracks.length}
+        isProduced={isProduced}
+        isProducing={isProducing}
+        isExporting={isExporting}
+        produceError={produceError}
+        exportError={exportError}
+        onAutotuneChange={(enabled) => {
+          setAutotuneEnabled(enabled);
+          resetProductionState();
+        }}
+        onProduce={handleAutofitAndProduce}
+        onExportWav={() => handleExport("wav")}
+        onExportMp3={() => handleExport("mp3")}
+      />
     </div>
   );
 }
