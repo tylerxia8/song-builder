@@ -10,22 +10,53 @@ SongBuilder introduces a third category: the **AI Music Producer**. Rather than 
 
 **Goal:** Anyone — including children with no musical experience — should be able to imagine a song, hum it into a phone, and hear a professional-quality version within minutes.
 
-## How It Works
+## Workflow
 
-1. **Hum your melody** — sing, hum, whistle, or vocalize a musical idea
-2. **Automatic conversion** — pitch and rhythm detection, note conversion, timing cleanup, and instrument options
-3. **Layer by layer** — beatbox drums, hum bass lines, clap rhythms, or sing harmonies
-4. **AI collaboration** — chord suggestions, harmony options, drum styles, and arrangement improvements
+**Idea → Voice → Song**
 
-**Workflow:** Idea → Voice → Song
-
-## Key Differentiator
-
-SongBuilder is not an AI music generator — it is an AI music producer. The user remains the songwriter while the AI acts as a creative collaborator.
+1. Hum your melody
+2. Layer bass, drums, and harmony with more voice recordings
+3. Let AI assist with pitch detection, timing cleanup, and instrument rendering
 
 ## Tech Stack
 
-TBD
+- **Frontend:** Next.js 16, React 19, TypeScript, Tailwind CSS
+- **Audio:** Web Audio API, MediaRecorder
+- **Planned:** Audio-to-MIDI, pitch detection, harmony generation, AI arrangement
+
+## Getting Started
+
+```bash
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) for the landing page, or go directly to [http://localhost:3000/studio](http://localhost:3000/studio) to start recording layers.
+
+## Project Structure
+
+```
+src/
+  app/              Next.js routes (landing + studio)
+  components/       UI and studio workspace
+  hooks/            Audio recording hook
+  lib/              Track definitions and shared types
+```
+
+## Current MVP
+
+- Landing page with product vision
+- Voice-first studio with four track layers: melody, bass, drums, harmony
+- Browser microphone recording, playback, and waveform preview
+- Multi-layer preview playback
+
+## Roadmap
+
+- [ ] Pitch and rhythm detection
+- [ ] Audio-to-MIDI conversion
+- [ ] Instrument rendering (piano, guitar, synth, etc.)
+- [ ] AI chord and arrangement suggestions
+- [ ] Export polished song
 
 ## License
 
