@@ -1,9 +1,5 @@
-import { StudioWorkspace } from "@/components/StudioWorkspace";
+import { StudioClient } from "./StudioClient";
 
 export default function StudioPage() {
-  return (
-    <main className="min-h-screen bg-[#0b0b10]">
-      <StudioWorkspace />
-    </main>
-  );
+  return <StudioClient />;
 }

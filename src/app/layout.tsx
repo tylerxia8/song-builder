@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SongBuilder | The AI Music Producer",
+  title: "SongBuilder Pro | Professional Music Producer",
   description:
-    "Transform your own musical ideas into polished songs with voice-first recording and AI production assistance.",
+    "Arrange, edit, mix, and export music in a professional browser-based producer with drums, piano roll, mixer, and timeline.",
 };
 
 export default function RootLayout({
