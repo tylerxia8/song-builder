@@ -1,3 +1,7 @@
+import { masterAudioBufferAsync } from "@/lib/mastering";
+
+export type ExportPreset = "demo-mp3" | "release-wav" | "stems";
+
 export function encodeWav(buffer: AudioBuffer): ArrayBuffer {
   const numChannels = buffer.numberOfChannels;
   const sampleRate = buffer.sampleRate;
@@ -53,11 +57,14 @@ export function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+function safeFilename(projectName: string): string {
+  return projectName.trim().replace(/\s+/g, "-").toLowerCase() || "songbuilder-export";
+}
+
 export async function exportProjectWav(buffer: AudioBuffer, projectName: string) {
   const wav = encodeWav(buffer);
   const blob = new Blob([wav], { type: "audio/wav" });
-  const safeName = projectName.trim().replace(/\s+/g, "-").toLowerCase() || "songbuilder-export";
-  downloadBlob(blob, `${safeName}.wav`);
+  downloadBlob(blob, `${safeFilename(projectName)}.wav`);
 }
 
 export async function exportProjectMp3(buffer: AudioBuffer, projectName: string) {
@@ -74,7 +81,7 @@ export async function exportProjectMp3(buffer: AudioBuffer, projectName: string)
   const blockSize = 1152;
   const mp3Data: Int8Array[] = [];
 
-  for (let i = 0; i < mono.length; i += blockSize) {
+  for (let i = 0; i < left.length; i += blockSize) {
     const chunk = mono.subarray(i, i + blockSize);
     const int16 = floatTo16BitPCM(chunk);
     const encoded = mp3Encoder.encodeBuffer(int16);
@@ -84,8 +91,36 @@ export async function exportProjectMp3(buffer: AudioBuffer, projectName: string)
   const flushed = mp3Encoder.flush();
   if (flushed.length > 0) mp3Data.push(flushed);
 
-  const safeName = projectName.trim().replace(/\s+/g, "-").toLowerCase() || "songbuilder-export";
-  downloadBlob(new Blob(mp3Data as BlobPart[], { type: "audio/mpeg" }), `${safeName}.mp3`);
+  downloadBlob(new Blob(mp3Data as BlobPart[], { type: "audio/mpeg" }), `${safeFilename(projectName)}.mp3`);
+}
+
+export async function exportWithPreset(
+  buffer: AudioBuffer,
+  projectName: string,
+  preset: ExportPreset,
+): Promise<void> {
+  const mastered = await masterAudioBufferAsync(buffer, preset === "demo-mp3" ? -16 : -14);
+
+  if (preset === "demo-mp3") {
+    await exportProjectMp3(mastered, `${projectName}-demo`);
+    return;
+  }
+
+  if (preset === "release-wav") {
+    await exportProjectWav(mastered, `${projectName}-release`);
+    return;
+  }
+
+  await exportProjectWav(mastered, projectName);
+}
+
+export async function exportStemWav(buffer: AudioBuffer, projectName: string, stemName: string) {
+  const mastered = await masterAudioBufferAsync(buffer, -18);
+  const wav = encodeWav(mastered);
+  downloadBlob(
+    new Blob([wav], { type: "audio/wav" }),
+    `${safeFilename(projectName)}-${stemName}.wav`,
+  );
 }
 
 function floatTo16BitPCM(samples: Float32Array): Int16Array {

@@ -18,6 +18,7 @@ export function MenuBar() {
     redo,
     loadStarterTemplate,
     newProject,
+    setViewMode,
     openProject,
     saveProject,
     isSaving,
@@ -94,6 +95,16 @@ export function MenuBar() {
                   }}
                 >
                   Save
+                </button>
+                <button
+                  type="button"
+                  className="block w-full px-3 py-2 text-left hover:bg-white/5"
+                  onClick={() => {
+                    setViewMode("guided");
+                    setOpenMenu(null);
+                  }}
+                >
+                  Make a Song wizard
                 </button>
                 <button
                   type="button"

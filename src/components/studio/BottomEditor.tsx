@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { DEFAULT_VOCAL_POLISH } from "@/lib/vocal-polish";
 import { useStudio } from "@/store/project-store";
 import type { DrumPattern } from "@/types/project";
 import { STEPS_PER_PATTERN } from "@/types/project";
@@ -14,8 +16,16 @@ const DRUM_ROWS: Array<{ key: keyof DrumPattern; label: string }> = [
 const PIANO_PITCHES = Array.from({ length: 24 }, (_, index) => 60 + (23 - index));
 
 export function BottomEditor() {
-  const { selectedClip, selection, setEditorMode, toggleDrumStep, togglePianoNote } =
-    useStudio();
+  const {
+    selectedClip,
+    selection,
+    setEditorMode,
+    toggleDrumStep,
+    togglePianoNote,
+    polishSelectedVocal,
+  } = useStudio();
+  const [polishAmount, setPolishAmount] = useState(DEFAULT_VOCAL_POLISH.amount);
+  const [polishing, setPolishing] = useState(false);
 
   return (
     <section className="flex h-72 shrink-0 flex-col border-t border-white/10 bg-[#101018]">
@@ -140,6 +150,33 @@ export function BottomEditor() {
                   src={selectedClip.audioUrl}
                   className="w-full max-w-md"
                 />
+                <label className="max-w-md text-xs text-zinc-400">
+                  Polish amount · Natural to Tuned
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={polishAmount}
+                    onChange={(event) => setPolishAmount(Number(event.target.value))}
+                    className="mt-2 w-full accent-violet-400"
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={polishing}
+                  onClick={async () => {
+                    setPolishing(true);
+                    try {
+                      await polishSelectedVocal(polishAmount);
+                    } finally {
+                      setPolishing(false);
+                    }
+                  }}
+                  className="w-fit rounded-md bg-violet-600 px-4 py-2 text-xs font-semibold hover:bg-violet-500 disabled:opacity-50"
+                >
+                  {polishing ? "Polishing…" : "Polish vocal"}
+                </button>
                 <p className="text-xs text-zinc-500">
                   Press Play in the transport bar to hear it in the full mix, or use the preview
                   above.

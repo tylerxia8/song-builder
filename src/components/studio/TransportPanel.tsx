@@ -1,6 +1,7 @@
 "use client";
 
 import { useStudio } from "@/store/project-store";
+import type { ExportPreset } from "@/engine/export";
 
 export function TransportPanel() {
   const {
@@ -14,8 +15,9 @@ export function TransportPanel() {
     toggleLoop,
     toggleMetronome,
     setBpm,
-    exportWav,
-    exportMp3,
+    exportPreset,
+    exportStems,
+    setMixBalance,
   } = useStudio();
 
   const isRecording = state.transport.isRecording;
@@ -92,15 +94,19 @@ export function TransportPanel() {
 
       <div className="hidden h-7 w-px bg-white/10 sm:block" />
 
-      <div className="text-xs text-zinc-400">
-        {armedTrack ? (
-          <>
-            Armed: <span className="font-semibold text-red-300">{armedTrack.name}</span>
-          </>
-        ) : (
-          <span className="text-zinc-500">No track armed for recording</span>
-        )}
-      </div>
+      <label className="hidden items-center gap-2 text-xs text-zinc-400 md:flex">
+        Vocal mix
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.05}
+          defaultValue={0.55}
+          disabled={isRecording}
+          onChange={(event) => setMixBalance(Number(event.target.value))}
+          className="w-24 accent-violet-400"
+        />
+      </label>
 
       <label className="flex items-center gap-2 text-xs text-zinc-400">
         BPM
@@ -115,23 +121,26 @@ export function TransportPanel() {
         />
       </label>
 
-      <div className="ml-auto flex items-center gap-2">
-        <button
-          type="button"
-          disabled={isRecording}
-          onClick={() => void exportWav()}
-          className="rounded-md border border-white/10 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-white/5 disabled:opacity-40"
-        >
-          Export WAV
-        </button>
-        <button
-          type="button"
-          disabled={isRecording}
-          onClick={() => void exportMp3()}
-          className="rounded-md border border-white/10 px-3 py-2 text-xs font-semibold text-zinc-400 transition hover:bg-white/5 disabled:opacity-40"
-        >
-          Export MP3
-        </button>
+      <div className="ml-auto flex flex-wrap items-center gap-2">
+        {(
+          [
+            ["demo-mp3", "Demo MP3"],
+            ["release-wav", "Release WAV"],
+            ["stems", "Stems"],
+          ] as const
+        ).map(([preset, label]) => (
+          <button
+            key={preset}
+            type="button"
+            disabled={isRecording}
+            onClick={() =>
+              void (preset === "stems" ? exportStems() : exportPreset(preset as ExportPreset))
+            }
+            className="rounded-md border border-white/10 px-3 py-2 text-xs font-semibold text-zinc-200 transition hover:bg-white/5 disabled:opacity-40"
+          >
+            {label}
+          </button>
+        ))}
         {state.transport.isPlaying && (
           <span className="animate-pulse text-[11px] font-semibold uppercase tracking-wider text-emerald-400">
             Playing

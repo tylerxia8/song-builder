@@ -143,6 +143,7 @@ export function createStarterTemplate(): Project {
     loopStartBar: 0,
     loopEndBar: 4,
     metronomeEnabled: false,
+    songKey: "Am",
     tracks,
   };
 }

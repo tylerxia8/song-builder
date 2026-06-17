@@ -24,6 +24,13 @@ export interface DrumPattern {
 
 export type ClipKind = "midi" | "drums" | "audio";
 
+export type SongKey = "C" | "G" | "D" | "A" | "E" | "F" | "Am" | "Em" | "Dm" | "Bm";
+
+export interface VocalPolishSettings {
+  amount: number;
+  key: SongKey;
+}
+
 export interface Clip {
   id: string;
   trackId: string;
@@ -35,6 +42,9 @@ export interface Clip {
   pattern?: DrumPattern;
   audioUrl?: string;
   audioAssetId?: string;
+  audioOffsetBeat?: number;
+  sourceDurationBeat?: number;
+  vocalPolish?: VocalPolishSettings;
   color?: string;
 }
 
@@ -62,6 +72,7 @@ export interface Project {
   loopStartBar: number;
   loopEndBar: number;
   metronomeEnabled: boolean;
+  songKey?: SongKey;
   tracks: Track[];
 }
 
@@ -72,6 +83,8 @@ export interface TransportState {
 }
 
 export type EditorMode = "piano-roll" | "drum-machine" | "audio";
+
+export type StudioViewMode = "pro" | "guided";
 
 export interface StudioSelection {
   trackId: string | null;

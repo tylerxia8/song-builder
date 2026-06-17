@@ -1,6 +1,8 @@
 import * as Tone from "tone";
 import type { InstrumentProgram } from "@/types/project";
+import { beatToSeconds, getClipAudioOffsetBeat } from "@/lib/audio-clip";
 import { getTrackOutputVolume, isTrackAudible } from "@/lib/mix";
+import { connectTrackToMaster, createMasterChain } from "@/engine/master-chain";
 import {
   BEATS_PER_BAR,
   beatToTransportTime,
@@ -288,7 +290,9 @@ export class AudioEngine {
   private scheduleClip(project: Project, track: Track, clip: Clip, nodes: TrackNodes) {
     if (clip.kind === "audio" && clip.audioUrl) {
       const player = new Tone.Player(clip.audioUrl).connect(nodes.channel);
-      player.sync().start(beatToTransportTime(clip.startBeat));
+      const offsetSec = beatToSeconds(getClipAudioOffsetBeat(clip), project.bpm);
+      player.sync().start(beatToTransportTime(clip.startBeat), offsetSec);
+      player.sync().stop(beatToTransportTime(clip.startBeat + clip.durationBeat));
       nodes.players.push(player);
       return;
     }
@@ -351,10 +355,14 @@ export class AudioEngine {
     return transportTimeToBeat(Tone.Transport.position as string);
   }
 
-  async renderOffline(project: Project, durationBars: number): Promise<AudioBuffer> {
+  async renderOffline(
+    project: Project,
+    durationBars: number,
+    masterVolume = 0.92,
+    soloTrackId?: string | null,
+  ): Promise<AudioBuffer> {
     await this.ensureStarted();
     const durationSeconds = (durationBars * BEATS_PER_BAR * 60) / project.bpm;
-    const beatToSeconds = (beat: number) => (beat * 60) / project.bpm;
 
     const audioBuffers = new Map<string, Tone.ToneAudioBuffer>();
     await Promise.all(
@@ -368,30 +376,42 @@ export class AudioEngine {
 
     const rendered = await Tone.Offline(() => {
       Tone.Transport.bpm.value = project.bpm;
+      const master = createMasterChain(masterVolume);
+
       project.tracks.forEach((track) => {
+        const audible =
+          soloTrackId != null
+            ? track.id === soloTrackId
+            : isTrackAudible(track, project.tracks);
+        if (!audible) return;
+
         const outputVolume = getTrackOutputVolume(track, project.tracks);
         const channel = new Tone.Channel({
           volume: Tone.gainToDb(outputVolume),
           pan: track.pan,
-          mute: !isTrackAudible(track, project.tracks),
         });
-        const instrument =
-          track.kind === "drums" ? createDrumSynth() : createInstrument(track.instrument);
-        instrument.connect(channel);
-        channel.toDestination();
 
-        track.clips.forEach((clip) => {
-          if (clip.kind === "audio" && clip.audioUrl) {
+        if (track.kind === "audio") {
+          track.clips.forEach((clip) => {
+            if (clip.kind !== "audio" || !clip.audioUrl) return;
             const buffer = audioBuffers.get(clip.id);
             if (!buffer) return;
             const player = new Tone.Player(buffer).connect(channel);
-            const startSec = beatToSeconds(clip.startBeat);
-            const endSec = startSec + beatToSeconds(clip.durationBeat);
-            player.start(startSec);
+            const startSec = beatToSeconds(clip.startBeat, project.bpm);
+            const offsetSec = beatToSeconds(getClipAudioOffsetBeat(clip), project.bpm);
+            const endSec = startSec + beatToSeconds(clip.durationBeat, project.bpm);
+            player.start(startSec, offsetSec);
             player.stop(endSec);
-            return;
-          }
+          });
+          connectTrackToMaster(channel, master.input);
+          return;
+        }
 
+        const instrument =
+          track.kind === "drums" ? createDrumSynth() : createInstrument(track.instrument);
+        instrument.connect(channel);
+
+        track.clips.forEach((clip) => {
           if (clip.kind === "drums" && clip.pattern) {
             const events = patternToEvents(clip.pattern, clip.startBeat, clip.durationBeat);
             new Tone.Part((time, event) => {
@@ -416,6 +436,8 @@ export class AudioEngine {
             }, events.map((event) => [event.time, event])).start(0);
           }
         });
+
+        connectTrackToMaster(channel, master.input);
       });
     }, durationSeconds);
 

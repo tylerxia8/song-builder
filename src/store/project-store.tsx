@@ -11,9 +11,14 @@ import {
   type ReactNode,
 } from "react";
 import { AudioEngine } from "@/engine/audio-engine";
-import { registerAudioAsset, revokeProjectAudioUrls, collectProjectAssetIds } from "@/lib/audio-assets";
+import type { ExportPreset } from "@/engine/export";
+import { detectKeyFromProject } from "@/lib/ai-assist";
+import { registerAudioAsset, revokeProjectAudioUrls, collectProjectAssetIds, getAudioBlob } from "@/lib/audio-assets";
 import { createDemoProject, createEmptyProject } from "@/lib/demo-project";
+import { importAudioFile } from "@/lib/file-import";
 import { createStarterTemplate } from "@/lib/starter-template";
+import { createTemplateForVibe, type SongVibe, type WizardStepId } from "@/lib/song-templates";
+import { DEFAULT_VOCAL_POLISH, polishVocalBlob } from "@/lib/vocal-polish";
 import { createInitialHistory, pushHistory, redoHistory, resolveInitialProject, undoHistory, type ProjectHistory } from "@/lib/project-history";
 import { loadProjectFromStorage, saveProjectToStorage } from "@/lib/project-storage";
 import { trackColor } from "@/lib/colors";
@@ -43,8 +48,10 @@ import {
   type MidiNote,
   type Project,
   type StudioSelection,
+  type StudioViewMode,
   type Track,
   type TrackKind,
+  type VocalPolishSettings,
 } from "@/types/project";
 
 interface StudioState {
@@ -309,8 +316,18 @@ interface StudioContextValue {
   canRedo: boolean;
   newProject: () => void;
   loadStarterTemplate: () => void;
+  loadTemplateForVibe: (vibe: SongVibe) => void;
   openProject: (projectId: string) => Promise<void>;
   saveProject: () => Promise<void>;
+  viewMode: StudioViewMode;
+  wizardStep: WizardStepId;
+  setViewMode: (mode: StudioViewMode) => void;
+  setWizardStep: (step: WizardStepId) => void;
+  polishSelectedVocal: (amount?: number) => Promise<void>;
+  setMixBalance: (vocalWeight: number) => void;
+  importAudioClip: (file: File, startBeat: number) => Promise<void>;
+  exportPreset: (preset: ExportPreset) => Promise<void>;
+  exportStems: () => Promise<void>;
   isHydrated: boolean;
   isSaving: boolean;
   lastSavedAt: number | null;
@@ -333,12 +350,14 @@ export function StudioProvider({
   engineSync: (project: Project, masterVolume: number) => void;
   engineSetMasterVolume: (value: number) => void;
   engineSetPositionListener: (listener: ((beat: number) => void) | null) => void;
-  engineExport: (project: Project) => Promise<AudioBuffer>;
+  engineExport: (project: Project, masterVolume: number, soloTrackId?: string | null) => Promise<AudioBuffer>;
 }) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   const [isHydrated, setIsHydrated] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<StudioViewMode>("guided");
+  const [wizardStep, setWizardStep] = useState<WizardStepId>("vibe");
 
   useEffect(() => {
     resolveInitialProject()
@@ -469,8 +488,14 @@ export function StudioProvider({
         kind: "audio",
         startBeat: state.transport.currentBeat,
         durationBeat,
+        sourceDurationBeat: durationBeat,
+        audioOffsetBeat: 0,
         audioAssetId: assetId,
         audioUrl,
+        vocalPolish: {
+          amount: DEFAULT_VOCAL_POLISH.amount,
+          key: state.project.songKey ?? detectKeyFromProject(state.project),
+        },
       };
 
       dispatch({
@@ -725,14 +750,97 @@ export function StudioProvider({
       startRecording,
       stopRecording,
       exportWav: async () => {
-        const buffer = await engineExport(state.project);
-        const { exportProjectWav } = await import("@/engine/export");
-        await exportProjectWav(buffer, state.project.name);
+        const buffer = await engineExport(state.project, state.masterVolume);
+        const { exportWithPreset } = await import("@/engine/export");
+        await exportWithPreset(buffer, state.project.name, "release-wav");
       },
       exportMp3: async () => {
-        const buffer = await engineExport(state.project);
-        const { exportProjectMp3 } = await import("@/engine/export");
-        await exportProjectMp3(buffer, state.project.name);
+        const buffer = await engineExport(state.project, state.masterVolume);
+        const { exportWithPreset } = await import("@/engine/export");
+        await exportWithPreset(buffer, state.project.name, "demo-mp3");
+      },
+      exportPreset: async (preset) => {
+        const buffer = await engineExport(state.project, state.masterVolume);
+        const { exportWithPreset } = await import("@/engine/export");
+        await exportWithPreset(buffer, state.project.name, preset);
+      },
+      exportStems: async () => {
+        const { exportStemWav } = await import("@/engine/export");
+        for (const track of state.project.tracks) {
+          const buffer = await engineExport(state.project, state.masterVolume, track.id);
+          await exportStemWav(buffer, state.project.name, track.name);
+        }
+      },
+      polishSelectedVocal: async (amount = DEFAULT_VOCAL_POLISH.amount) => {
+        const clip =
+          findClip(state.project, state.selection.clipId) ??
+          state.project.tracks.flatMap((track) => track.clips).find((item) => item.kind === "audio");
+        if (!clip?.audioUrl) return;
+
+        const blob =
+          (clip.audioAssetId ? getAudioBlob(clip.audioAssetId) : undefined) ??
+          (await fetch(clip.audioUrl).then((response) => response.blob()));
+        if (!blob) return;
+        const settings: VocalPolishSettings = {
+          amount,
+          key: clip.vocalPolish?.key ?? state.project.songKey ?? detectKeyFromProject(state.project),
+        };
+        const polished = await polishVocalBlob(blob, settings);
+
+        dispatch({
+          type: "UPDATE_PROJECT",
+          updater: (project) =>
+            updateClip(project, clip.id, (current) => ({
+              ...current,
+              audioAssetId: polished.assetId,
+              audioUrl: polished.audioUrl,
+              vocalPolish: settings,
+              name: `${current.name} · polished`,
+            })),
+        });
+      },
+      setMixBalance: (vocalWeight) => {
+        dispatch({
+          type: "UPDATE_PROJECT",
+          updater: (project) => ({
+            ...project,
+            tracks: project.tracks.map((track) => ({
+              ...track,
+              volume:
+                track.kind === "audio"
+                  ? 0.5 + vocalWeight * 0.45
+                  : Math.max(0.35, 0.9 - vocalWeight * 0.4),
+            })),
+          }),
+        });
+        engineSync(state.project, state.masterVolume);
+      },
+      importAudioClip: async (file, startBeat) => {
+        const result = await importAudioFile(file, state.project, state.selection.trackId, startBeat);
+        if (!result) throw new Error("Unsupported audio file");
+
+        dispatch({
+          type: "UPDATE_PROJECT",
+          updater: (project) => {
+            const trackExists = project.tracks.some((track) => track.id === result.trackId);
+            let next = project;
+            if (!trackExists) {
+              next = {
+                ...project,
+                tracks: [
+                  ...project.tracks,
+                  {
+                    ...createTrackForKind(project, "audio", "Imported Audio"),
+                    id: result.trackId,
+                    clips: [],
+                  },
+                ],
+              };
+            }
+            return insertClipsOnTrack(next, result.trackId, [result.clip]);
+          },
+        });
+        dispatch({ type: "SELECT_CLIP", clipId: result.clip.id, editorMode: "audio" });
       },
       undo: () => dispatch({ type: "UNDO" }),
       redo: () => dispatch({ type: "REDO" }),
@@ -752,6 +860,20 @@ export function StudioProvider({
           dispatch({ type: "SELECT_CLIP", clipId: null, editorMode: "audio" });
         }
       },
+      loadTemplateForVibe: (vibe) => {
+        engineStop();
+        const project = createTemplateForVibe(vibe);
+        dispatch({ type: "LOAD_PROJECT", project });
+        const vocalTrack = project.tracks.find((track) => track.kind === "audio");
+        if (vocalTrack) {
+          dispatch({ type: "SELECT_TRACK", trackId: vocalTrack.id });
+          dispatch({ type: "SELECT_CLIP", clipId: null, editorMode: "audio" });
+        }
+      },
+      viewMode,
+      wizardStep,
+      setViewMode,
+      setWizardStep,
       openProject: async (projectId) => {
         const project = await loadProjectFromStorage(projectId);
         if (!project) return;
@@ -780,6 +902,8 @@ export function StudioProvider({
       isHydrated,
       isSaving,
       lastSavedAt,
+      viewMode,
+      wizardStep,
       play,
       setupRecordingTrack,
       startRecording,

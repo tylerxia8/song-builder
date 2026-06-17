@@ -8,6 +8,12 @@ import {
   type MidiNote,
   type TrackKind,
 } from "@/types/project";
+import {
+  clampAudioDurationBeat,
+  getClipAudioOffsetBeat,
+  getClipSourceDurationBeat,
+  maxAudioDurationBeat,
+} from "@/lib/audio-clip";
 
 export const SNAP_GRID_BEAT = 0.25;
 export const MIN_CLIP_BEAT = 1;
@@ -143,6 +149,17 @@ export function resizeClipFromLeft(clip: Clip, deltaBeat: number): Clip | null {
     };
   }
 
+  if (clip.kind === "audio") {
+    const nextOffset = getClipAudioOffsetBeat(clip) + trimStart;
+    if (nextOffset + nextDuration > getClipSourceDurationBeat(clip) + 0.001) return null;
+    return {
+      ...clip,
+      startBeat: nextStart,
+      durationBeat: nextDuration,
+      audioOffsetBeat: nextOffset,
+    };
+  }
+
   return { ...clip, startBeat: nextStart, durationBeat: nextDuration };
 }
 
@@ -167,6 +184,11 @@ export function resizeClipFromRight(clip: Clip, deltaBeat: number): Clip | null 
       durationBeat: nextDuration,
       pattern: patternFromHits(hits, nextDuration),
     };
+  }
+
+  if (clip.kind === "audio") {
+    const capped = clampAudioDurationBeat(clip, nextDuration);
+    return { ...clip, durationBeat: capped };
   }
 
   return { ...clip, durationBeat: nextDuration };
@@ -208,6 +230,13 @@ export function splitClipAtBeat(clip: Clip, absoluteBeat: number): [Clip, Clip] 
   if (clip.pattern) {
     first.pattern = trimDrumPattern(clip.pattern, clip.durationBeat, 0, firstDuration);
     second.pattern = trimDrumPattern(clip.pattern, clip.durationBeat, relative, secondDuration);
+  }
+
+  if (clip.kind === "audio") {
+    first.audioOffsetBeat = getClipAudioOffsetBeat(clip);
+    first.sourceDurationBeat = getClipSourceDurationBeat(clip);
+    second.audioOffsetBeat = getClipAudioOffsetBeat(clip) + relative;
+    second.sourceDurationBeat = getClipSourceDurationBeat(clip);
   }
 
   return [first, second];

@@ -3,6 +3,7 @@
 import { STARTER_TEMPLATE_STEPS } from "@/lib/starter-template";
 import { useStudio } from "@/store/project-store";
 import type { TrackKind } from "@/types/project";
+import { AiAssistPanel, ImportPanel } from "./AssistPanels";
 import { RecordPanel } from "./RecordPanel";
 
 const instruments = [
@@ -14,7 +15,8 @@ const instruments = [
 ] as const;
 
 export function BrowserPanel() {
-  const { addTrack, loadStarterTemplate, setTrackInstrument, selectedTrack } = useStudio();
+  const { addTrack, loadStarterTemplate, setTrackInstrument, selectedTrack, setViewMode } =
+    useStudio();
 
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-white/10 bg-[#101018]">
@@ -45,6 +47,25 @@ export function BrowserPanel() {
         </section>
 
         <RecordPanel />
+
+        <section>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+            Workflows
+          </p>
+          <button
+            type="button"
+            onClick={() => setViewMode("guided")}
+            className="mb-2 w-full rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-left text-xs font-medium text-emerald-100 transition hover:border-emerald-400/50"
+          >
+            Make a Song wizard
+            <span className="mt-0.5 block text-[10px] font-normal text-zinc-400">
+              Guided path from vibe to export
+            </span>
+          </button>
+        </section>
+
+        <ImportPanel />
+        <AiAssistPanel />
 
         <section>
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
