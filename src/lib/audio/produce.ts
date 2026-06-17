@@ -28,6 +28,7 @@ import {
 import { detectOnsets } from "./onsets";
 import { extractNotes, scaleNoteTimes, shiftNotes, shiftOnsets } from "./pitch";
 import { applyAutotuneToNotes, renderAutotunedVoice } from "./autotune";
+import { snapOnsetsToGrid } from "./beat-grid";
 import { ensureMinDuration, generateDefaultBeatGrid, safeTrimStart } from "./utils";
 import type { ProduceOptions } from "@/lib/types";
 
@@ -101,6 +102,7 @@ export async function produceSongWithSummary(
     trimStartSec: 0,
     startDelaySec: 0,
     tempoScale: 1,
+    gridOriginSec: 0,
   };
 
   let melodyNotes = melodyTrack
@@ -110,11 +112,9 @@ export async function produceSongWithSummary(
   if (melodyNotes.length === 0) {
     const fallback = decoded.find(({ recording }) => recording.type !== "drums");
     if (fallback) {
-      melodyNotes = quantizeNotes(
-        scaleNoteTimes(
-          shiftNotes(extractNotes(fallback.buffer), syncByTrack[fallback.recording.type].trimStartSec),
-          syncByTrack[fallback.recording.type].tempoScale,
-        ),
+      melodyNotes = alignNotesToBeatGrid(
+        fallback.buffer,
+        syncByTrack[fallback.recording.type],
         masterBpm,
       );
     }
@@ -177,11 +177,7 @@ function prepareMelodyNotes(
   syncSettings: SyncSettings,
   masterBpm: number,
 ): NoteEvent[] {
-  const notes = scaleNoteTimes(
-    shiftNotes(extractNotes(buffer), syncSettings.trimStartSec),
-    syncSettings.tempoScale,
-  );
-  return quantizeNotes(notes, masterBpm);
+  return alignNotesToBeatGrid(buffer, syncSettings, masterBpm);
 }
 
 function chordLabelToRoot(label: string): number {
@@ -281,13 +277,33 @@ function resolveDrumOnsets(
   bpm: number,
   duration: number,
 ): number[] {
-  const onsets = shiftOnsets(
+  const shifted = shiftOnsets(
     detectOnsets(buffer),
     syncSettings.trimStartSec,
     syncSettings.tempoScale,
   );
 
-  return onsets.length > 0 ? onsets : generateDefaultBeatGrid(bpm, duration);
+  if (shifted.length === 0) {
+    return snapOnsetsToGrid(generateDefaultBeatGrid(bpm, duration), bpm, 0, 4);
+  }
+
+  return snapOnsetsToGrid(shifted, bpm, 0, 4);
+}
+
+function alignNotesToBeatGrid(
+  buffer: AudioBuffer,
+  syncSettings: SyncSettings,
+  bpm: number,
+): NoteEvent[] {
+  return quantizeNotes(
+    scaleNoteTimes(
+      shiftNotes(extractNotes(buffer), syncSettings.trimStartSec),
+      syncSettings.tempoScale,
+    ),
+    bpm,
+    4,
+    0,
+  );
 }
 
 function resolveMusicalNotes(
@@ -296,15 +312,14 @@ function resolveMusicalNotes(
   syncSettings: SyncSettings,
   context: ProduceContext,
 ): NoteEvent[] {
-  const rawNotes = scaleNoteTimes(
-    shiftNotes(extractNotes(buffer), syncSettings.trimStartSec),
-    syncSettings.tempoScale,
-  );
+  const rawNotes = alignNotesToBeatGrid(buffer, syncSettings, context.masterBpm);
 
   if (type === "melody") {
     const notes = quantizeNotes(
       rawNotes.length > 0 ? rawNotes : generateChordPad(context.chordSegments, context.masterBpm),
       context.masterBpm,
+      4,
+      0,
     );
     return maybeAutotuneNotes(type, notes, context);
   }
@@ -323,6 +338,8 @@ function resolveMusicalNotes(
       quantizeNotes(
         notes.length > 0 ? notes : generateChordPad(context.chordSegments, context.masterBpm),
         context.masterBpm,
+        4,
+        0,
       ),
       context,
     );
@@ -333,10 +350,14 @@ function resolveMusicalNotes(
       rawNotes.length >= 2
         ? snapNotesToBass(rawNotes, context.chordSegments)
         : generateBassLine(context.chordSegments, context.masterBpm);
-    return maybeAutotuneNotes(type, quantizeNotes(notes, context.masterBpm), context);
+    return maybeAutotuneNotes(
+      type,
+      quantizeNotes(notes, context.masterBpm, 4, 0),
+      context,
+    );
   }
 
-  return quantizeNotes(rawNotes, context.masterBpm);
+  return rawNotes;
 }
 
 async function renderAutotunedOriginal(
@@ -351,6 +372,8 @@ async function renderAutotunedOriginal(
       syncSettings.tempoScale,
     ),
     context.masterBpm,
+    4,
+    0,
   );
 
   if (rawNotes.length === 0) {

@@ -23,6 +23,7 @@ export interface SyncSettings {
   trimStartSec: number;
   startDelaySec: number;
   tempoScale: number;
+  gridOriginSec: number;
 }
 
 export interface ChordSegment {

@@ -13,12 +13,16 @@ export function safeTrimStart(trimStartSec: number, bufferDuration: number): num
 }
 
 export function generateDefaultBeatGrid(bpm: number, duration: number): number[] {
-  const beatDuration = 60 / bpm;
+  const step = beatDuration(bpm) / 4;
   const onsets: number[] = [];
 
-  for (let time = 0; time < duration; time += beatDuration / 2) {
-    onsets.push(time);
+  for (let time = 0; time < duration; time += step) {
+    onsets.push(Number(time.toFixed(4)));
   }
 
   return onsets.length > 0 ? onsets : [0];
+}
+
+function beatDuration(bpm: number): number {
+  return 60 / bpm;
 }

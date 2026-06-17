@@ -72,7 +72,7 @@ export function MasterBus({
             onClick={onProduce}
             className="rounded-md bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {isProducing ? "Producing…" : "Mix & Produce"}
+            {isProducing ? "Producing…" : "Mix & Produce (on beat)"}
           </button>
           <button
             type="button"

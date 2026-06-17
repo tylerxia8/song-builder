@@ -85,7 +85,7 @@ function inferChordProgression(
 ): ChordSegment[] {
   const safeDuration = Math.max(60 / bpm, duration);
   const beatDuration = 60 / bpm;
-  const segmentDuration = beatDuration * 2;
+  const segmentDuration = beatDuration * 4;
   const diatonic = key.mode === "major" ? DIATONIC_MAJOR : DIATONIC_MINOR;
   const chords: ChordSegment[] = [];
 
@@ -152,11 +152,16 @@ export function getChordAtTime(chords: ChordSegment[], time: number): ChordSegme
   return current;
 }
 
-export function quantizeNotes(notes: NoteEvent[], bpm: number, division = 4): NoteEvent[] {
+export function quantizeNotes(
+  notes: NoteEvent[],
+  bpm: number,
+  division = 4,
+  gridOriginSec = 0,
+): NoteEvent[] {
   const grid = 60 / bpm / division;
   return notes.map((note) => ({
     ...note,
-    time: Math.round(note.time / grid) * grid,
+    time: gridOriginSec + Math.round((note.time - gridOriginSec) / grid) * grid,
     duration: Math.max(grid, Math.round(note.duration / grid) * grid),
   }));
 }
