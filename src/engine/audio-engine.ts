@@ -1,5 +1,6 @@
 import * as Tone from "tone";
 import type { InstrumentProgram } from "@/types/project";
+import { getTrackOutputVolume, isTrackAudible } from "@/lib/mix";
 import {
   BEATS_PER_BAR,
   beatToTransportTime,
@@ -47,30 +48,30 @@ function createInstrument(program: InstrumentProgram): Tone.ToneAudioNode {
         harmonicity: 2,
         modulationIndex: 1.2,
         envelope: { attack: 0.01, decay: 0.2, sustain: 0.3, release: 0.8 },
-      }).toDestination();
+      });
     case "analog-bass":
       return new Tone.MonoSynth({
         oscillator: { type: "square" },
         filter: { Q: 2, type: "lowpass", rolloff: -24 },
         envelope: { attack: 0.01, decay: 0.25, sustain: 0.35, release: 0.4 },
         filterEnvelope: { attack: 0.01, decay: 0.2, sustain: 0.2, release: 0.2, baseFrequency: 80, octaves: 2.2 },
-      }).toDestination();
+      });
     case "lead-synth":
       return new Tone.PolySynth(Tone.Synth, {
         oscillator: { type: "sawtooth" },
         envelope: { attack: 0.02, decay: 0.1, sustain: 0.4, release: 0.5 },
-      }).toDestination();
+      });
     case "pad":
       return new Tone.PolySynth(Tone.Synth, {
         oscillator: { type: "triangle" },
         envelope: { attack: 0.3, decay: 0.2, sustain: 0.7, release: 1.2 },
-      }).toDestination();
+      });
     case "grand-piano":
     default:
       return new Tone.PolySynth(Tone.Synth, {
         oscillator: { type: "triangle" },
         envelope: { attack: 0.005, decay: 0.3, sustain: 0.4, release: 0.8 },
-      }).toDestination();
+      });
   }
 }
 
@@ -226,10 +227,10 @@ export class AudioEngine {
 
     project.tracks.forEach((track) => {
       const nodes = this.getOrCreateTrackNodes(track);
-      const anySolo = project.tracks.some((item) => item.solo);
-      const audible = !track.muted && (!anySolo || track.solo);
-      nodes.channel.volume.rampTo(Tone.gainToDb(audible ? track.volume : 0.0001), 0.03);
+      const outputVolume = getTrackOutputVolume(track, project.tracks);
+      nodes.channel.volume.rampTo(Tone.gainToDb(outputVolume), 0.03);
       nodes.channel.pan.rampTo(track.pan, 0.03);
+      nodes.channel.mute = !isTrackAudible(track, project.tracks);
     });
 
     Tone.Transport.bpm.value = project.bpm;
@@ -338,6 +339,7 @@ export class AudioEngine {
   stop() {
     Tone.Transport.stop();
     this.clearScheduled();
+    [...this.trackNodes.keys()].forEach((trackId) => this.disposeTrackNodes(trackId));
     if (this.positionInterval) {
       clearInterval(this.positionInterval);
       this.positionInterval = null;
@@ -356,7 +358,12 @@ export class AudioEngine {
     const rendered = await Tone.Offline(() => {
       Tone.Transport.bpm.value = project.bpm;
       project.tracks.forEach((track) => {
-        const channel = new Tone.Channel({ volume: Tone.gainToDb(track.volume), pan: track.pan });
+        const outputVolume = getTrackOutputVolume(track, project.tracks);
+        const channel = new Tone.Channel({
+          volume: Tone.gainToDb(outputVolume),
+          pan: track.pan,
+          mute: !isTrackAudible(track, project.tracks),
+        });
         const instrument =
           track.kind === "drums" ? createDrumSynth() : createInstrument(track.instrument);
         instrument.connect(channel);

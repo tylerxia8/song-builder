@@ -336,7 +336,11 @@ export function StudioProvider({
       updateTrackMix: (trackId, patch) =>
         dispatch({
           type: "UPDATE_PROJECT",
-          updater: (project) => updateTrack(project, trackId, (track) => ({ ...track, ...patch })),
+          updater: (project) => {
+            const next = updateTrack(project, trackId, (track) => ({ ...track, ...patch }));
+            engineSync(next, state.masterVolume);
+            return next;
+          },
         }),
       setTrackInstrument: (trackId, instrument) =>
         dispatch({
@@ -511,6 +515,7 @@ export function StudioProvider({
       engineExport,
       enginePlay,
       engineSetMasterVolume,
+      engineSync,
       engineStop,
       play,
       selectedClip,
