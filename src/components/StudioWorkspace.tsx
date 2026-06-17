@@ -419,7 +419,7 @@ export function StudioWorkspace() {
       {harmony && masterBpm && <ChordSuggestions harmony={harmony} masterBpm={masterBpm} />}
 
       <div className="flex-1 overflow-auto daw-scrollbar">
-        <div className="grid grid-cols-[11rem_1fr] border-b border-white/10 sm:grid-cols-[13rem_1fr]">
+        <div className="grid grid-cols-[13rem_1fr] border-b border-white/10 sm:grid-cols-[15rem_1fr]">
           <div className="flex items-center border-r border-white/10 bg-[#101018] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
             Tracks
           </div>

@@ -28,6 +28,40 @@ const statusLabels = {
   ready: "Produced",
 } as const;
 
+function TrackControlButton({
+  label,
+  hint,
+  active,
+  onClick,
+  activeClassName,
+}: {
+  label: string;
+  hint: string;
+  active: boolean;
+  onClick: () => void;
+  activeClassName: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      aria-label={hint}
+      title={hint}
+      onClick={onClick}
+      className={`w-full rounded-md border px-2 py-1.5 text-left text-[11px] font-semibold transition ${
+        active
+          ? activeClassName
+          : "border-white/10 bg-[#1a1a24] text-zinc-300 hover:border-white/20 hover:bg-[#232330] hover:text-white"
+      }`}
+    >
+      <span className="block leading-tight">{label}</span>
+      <span className="mt-0.5 block text-[9px] font-normal leading-tight text-zinc-500">
+        {hint}
+      </span>
+    </button>
+  );
+}
+
 export function TrackLane({
   definition,
   recording,
@@ -57,7 +91,7 @@ export function TrackLane({
 
   return (
     <div
-      className={`grid grid-cols-[11rem_1fr] border-b border-white/10 sm:grid-cols-[13rem_1fr] ${
+      className={`grid grid-cols-[13rem_1fr] border-b border-white/10 sm:grid-cols-[15rem_1fr] ${
         isArmed ? "bg-white/[0.03]" : "bg-[#101018]"
       }`}
     >
@@ -65,43 +99,32 @@ export function TrackLane({
         className="flex flex-col border-r border-white/10 p-3"
         style={{ boxShadow: `inset 3px 0 0 0 ${color}` }}
       >
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
+        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+          Track controls
+        </p>
+
+        <div className="mt-2 flex flex-col gap-1.5">
+          <TrackControlButton
+            label={isArmed ? "Recording target" : "Record on this track"}
+            hint="Next take goes here when you press Record"
+            active={isArmed}
             onClick={onArm}
-            className={`flex h-7 w-7 items-center justify-center rounded text-[11px] font-bold transition ${
-              isArmed
-                ? "bg-red-500 text-white shadow-[0_0_12px_rgba(239,68,68,0.35)]"
-                : "bg-[#1a1a24] text-zinc-400 hover:bg-red-500/20 hover:text-red-200"
-            }`}
-            title="Arm track for recording"
-          >
-            R
-          </button>
-          <button
-            type="button"
+            activeClassName="border-red-400/50 bg-red-500 text-white shadow-[0_0_12px_rgba(239,68,68,0.35)] [&_span:last-child]:text-red-100/80"
+          />
+          <TrackControlButton
+            label={mix.muted ? "Muted" : "Mute track"}
+            hint="Hide this layer during playback and export"
+            active={mix.muted}
             onClick={() => onMixChange(definition.type, { muted: !mix.muted })}
-            className={`flex h-7 w-7 items-center justify-center rounded text-[11px] font-bold transition ${
-              mix.muted
-                ? "bg-amber-500/25 text-amber-200"
-                : "bg-[#1a1a24] text-zinc-400 hover:bg-amber-500/15 hover:text-amber-100"
-            }`}
-            title="Mute track"
-          >
-            M
-          </button>
-          <button
-            type="button"
+            activeClassName="border-amber-400/40 bg-amber-500/20 text-amber-100 [&_span:last-child]:text-amber-100/70"
+          />
+          <TrackControlButton
+            label={mix.solo ? "Solo on" : "Solo only"}
+            hint="Play just this layer; mutes all other tracks"
+            active={mix.solo}
             onClick={() => onMixChange(definition.type, { solo: !mix.solo })}
-            className={`flex h-7 w-7 items-center justify-center rounded text-[11px] font-bold transition ${
-              mix.solo
-                ? "bg-sky-500/25 text-sky-200"
-                : "bg-[#1a1a24] text-zinc-400 hover:bg-sky-500/15 hover:text-sky-100"
-            }`}
-            title="Solo track"
-          >
-            S
-          </button>
+            activeClassName="border-sky-400/40 bg-sky-500/20 text-sky-100 [&_span:last-child]:text-sky-100/70"
+          />
         </div>
 
         <div className="mt-2 min-w-0">
@@ -158,22 +181,30 @@ export function TrackLane({
           </select>
         </label>
 
-        <div className="mt-3 flex items-center gap-1.5">
+        <div className="mt-3 flex flex-col gap-1.5">
           <button
             type="button"
             onClick={onPlay}
             disabled={!recording.audioUrl}
-            className="rounded border border-white/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-300 transition hover:bg-white/10 disabled:opacity-40"
+            title="Preview this track by itself"
+            className="rounded-md border border-white/10 px-2 py-1.5 text-left text-[11px] font-semibold text-zinc-300 transition hover:bg-white/10 disabled:opacity-40"
           >
-            Audition
+            <span className="block leading-tight">Play this track</span>
+            <span className="mt-0.5 block text-[9px] font-normal text-zinc-500">
+              Audition without changing mute or solo
+            </span>
           </button>
           <button
             type="button"
             onClick={onClear}
             disabled={!recording.audioUrl}
-            className="rounded border border-white/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 transition hover:bg-white/10 hover:text-zinc-300 disabled:opacity-40"
+            title="Remove this track's recording"
+            className="rounded-md border border-white/10 px-2 py-1.5 text-left text-[11px] font-semibold text-zinc-500 transition hover:bg-white/10 hover:text-zinc-300 disabled:opacity-40"
           >
-            Clear
+            <span className="block leading-tight">Clear take</span>
+            <span className="mt-0.5 block text-[9px] font-normal text-zinc-600">
+              Delete the recording on this lane
+            </span>
           </button>
         </div>
       </div>
