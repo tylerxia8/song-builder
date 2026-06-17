@@ -1,7 +1,12 @@
 "use client";
 
+import { useCallback, useRef } from "react";
+import { pixelsToBeats, snapBeat } from "@/lib/clip-editing";
 import { useStudio } from "@/store/project-store";
 import { BEATS_PER_BAR } from "@/types/project";
+import { ClipBlock } from "./ClipBlock";
+import { ClipKeyboardShortcuts } from "./ClipKeyboardShortcuts";
+import { ClipToolbar } from "./ClipToolbar";
 
 function barWidth(zoom: number) {
   return 96 * zoom;
@@ -17,21 +22,40 @@ export function ArrangementView() {
     addMidiClip,
     addDrumClip,
     setZoom,
+    setCurrentBeat,
+    moveClip,
+    resizeClip,
   } = useStudio();
 
   const totalBars = project.lengthBars;
-  const timelineWidth = totalBars * barWidth(state.zoom);
-  const playheadLeft =
-    (state.transport.currentBeat / BEATS_PER_BAR) * barWidth(state.zoom);
+  const barWidthPx = barWidth(state.zoom);
+  const timelineWidth = totalBars * barWidthPx;
+  const playheadLeft = (state.transport.currentBeat / BEATS_PER_BAR) * barWidthPx;
+  const trackIds = project.tracks.map((track) => track.id);
+
+  const getTrackAtIndex = useCallback(
+    (index: number) => project.tracks[index],
+    [project.tracks],
+  );
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const handleTimelineClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if ((event.target as HTMLElement).closest("[data-clip-block]")) return;
+    const scrollLeft = scrollRef.current?.scrollLeft ?? 0;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - rect.left + scrollLeft;
+    const beat = snapBeat(pixelsToBeats(x, barWidthPx));
+    setCurrentBeat(Math.max(0, beat));
+  };
 
   return (
     <section className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#0b0b10]">
-      <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
-        <div>
-          <p className="text-sm font-semibold text-white">{project.name}</p>
-          <p className="text-[11px] text-zinc-500">Arrangement · {totalBars} bars</p>
-        </div>
-        <label className="flex items-center gap-2 text-[11px] text-zinc-400">
+      <ClipKeyboardShortcuts />
+
+      <div className="flex items-center justify-between gap-3 border-b border-white/10 px-3 py-2">
+        <ClipToolbar />
+        <label className="flex shrink-0 items-center gap-2 text-[11px] text-zinc-400">
           Zoom
           <input
             type="range"
@@ -45,7 +69,7 @@ export function ArrangementView() {
         </label>
       </div>
 
-      <div className="flex min-h-0 flex-1 overflow-auto daw-scrollbar">
+      <div ref={scrollRef} className="flex min-h-0 flex-1 overflow-auto daw-scrollbar">
         <div className="sticky left-0 z-20 w-44 shrink-0 border-r border-white/10 bg-[#101018]">
           <div className="flex h-9 items-center border-b border-white/10 px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
             Tracks
@@ -79,8 +103,8 @@ export function ArrangementView() {
                   type="button"
                   onClick={() =>
                     track.kind === "drums"
-                      ? addDrumClip(track.id, 0)
-                      : addMidiClip(track.id, 0)
+                      ? addDrumClip(track.id, state.transport.currentBeat)
+                      : addMidiClip(track.id, state.transport.currentBeat)
                   }
                   className="rounded bg-[#1a1a24] px-1.5 py-0.5 text-[10px] font-bold text-zinc-400 hover:text-zinc-200"
                 >
@@ -100,7 +124,7 @@ export function ArrangementView() {
               <div
                 key={bar}
                 className="relative shrink-0 border-l border-white/10 px-2 pb-1"
-                style={{ width: barWidth(state.zoom) }}
+                style={{ width: barWidthPx }}
               >
                 <span className="text-[10px] font-mono text-zinc-500">{bar + 1}</span>
                 <div className="absolute bottom-0 left-0 top-0 flex w-full">
@@ -116,22 +140,24 @@ export function ArrangementView() {
             <div
               className="pointer-events-none absolute top-9 z-0 border-x border-violet-400/30 bg-violet-500/5"
               style={{
-                left: project.loopStartBar * barWidth(state.zoom),
-                width: (project.loopEndBar - project.loopStartBar) * barWidth(state.zoom),
+                left: project.loopStartBar * barWidthPx,
+                width: (project.loopEndBar - project.loopStartBar) * barWidthPx,
                 bottom: 0,
               }}
             />
           )}
 
-          <div className="relative" style={{ width: timelineWidth }}>
-            {state.transport.isPlaying && (
-              <div
-                className="pointer-events-none absolute top-0 bottom-0 z-30 w-px bg-white shadow-[0_0_10px_rgba(255,255,255,0.6)]"
-                style={{ left: playheadLeft }}
-              />
-            )}
+          <div
+            className="relative"
+            style={{ width: timelineWidth }}
+            onClick={handleTimelineClick}
+          >
+            <div
+              className="pointer-events-none absolute top-0 bottom-0 z-30 w-px bg-white shadow-[0_0_10px_rgba(255,255,255,0.6)]"
+              style={{ left: playheadLeft }}
+            />
 
-            {project.tracks.map((track) => (
+            {project.tracks.map((track, trackIndex) => (
               <div
                 key={track.id}
                 className="relative h-16 border-b border-white/10 bg-[#101018]/40"
@@ -141,48 +167,38 @@ export function ArrangementView() {
                   style={{
                     backgroundImage:
                       "linear-gradient(to right, rgba(255,255,255,0.04) 1px, transparent 1px)",
-                    backgroundSize: `${barWidth(state.zoom) / 4}px 100%`,
+                    backgroundSize: `${barWidthPx / 4}px 100%`,
                   }}
                 />
 
-                {track.clips.map((clip) => {
-                  const left = (clip.startBeat / BEATS_PER_BAR) * barWidth(state.zoom);
-                  const width = Math.max(
-                    48,
-                    (clip.durationBeat / BEATS_PER_BAR) * barWidth(state.zoom),
-                  );
-
-                  return (
-                    <button
-                      key={clip.id}
-                      type="button"
-                      onClick={() => selectClip(clip.id)}
-                      className={`absolute top-2 flex h-12 flex-col justify-center rounded-md border px-2 text-left transition ${
-                        state.selection.clipId === clip.id
-                          ? "border-white/40 ring-2 ring-violet-400/40"
-                          : "border-white/10 hover:border-white/25"
-                      }`}
-                      style={{
-                        left,
-                        width,
-                        backgroundColor: `${track.color}33`,
-                        boxShadow: `inset 0 0 0 1px ${track.color}55`,
-                      }}
-                    >
-                      <span className="truncate text-xs font-semibold text-white">
-                        {clip.name}
-                      </span>
-                      <span className="truncate text-[10px] capitalize text-zinc-300/80">
-                        {clip.kind}
-                      </span>
-                    </button>
-                  );
-                })}
+                {track.clips.map((clip) => (
+                  <div key={clip.id} data-clip-block="">
+                    <ClipBlock
+                      clip={clip}
+                      track={track}
+                      barWidthPx={barWidthPx}
+                      selected={state.selection.clipId === clip.id}
+                      trackIds={trackIds}
+                      trackIndex={trackIndex}
+                      getTrackAtIndex={getTrackAtIndex}
+                      onSelect={() => selectClip(clip.id)}
+                      onMove={moveClip}
+                      onResize={resizeClip}
+                    />
+                  </div>
+                ))}
               </div>
             ))}
           </div>
         </div>
       </div>
+
+      <p className="border-t border-white/10 px-3 py-1.5 text-[10px] text-zinc-600">
+        Drag clips to move · edge handles to trim · click timeline to set playhead ·{" "}
+        <kbd className="rounded bg-white/10 px-1">Del</kbd> delete ·{" "}
+        <kbd className="rounded bg-white/10 px-1">Ctrl+D</kbd> duplicate ·{" "}
+        <kbd className="rounded bg-white/10 px-1">S</kbd> split at playhead
+      </p>
     </section>
   );
 }

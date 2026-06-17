@@ -13,6 +13,14 @@ import { AudioEngine } from "@/engine/audio-engine";
 import { createDemoProject } from "@/lib/demo-project";
 import { trackColor } from "@/lib/colors";
 import {
+  canPlaceClipOnTrack,
+  duplicateClip,
+  resizeClipFromLeft,
+  resizeClipFromRight,
+  snapBeat,
+  splitClipAtBeat,
+} from "@/lib/clip-editing";
+import {
   BEATS_PER_BAR,
   createEmptyDrumPattern,
   createId,
@@ -142,6 +150,33 @@ function updateClip(project: Project, clipId: string, updater: (clip: Clip) => C
   };
 }
 
+function removeClip(project: Project, clipId: string): Project {
+  return {
+    ...project,
+    tracks: project.tracks.map((track) => ({
+      ...track,
+      clips: track.clips.filter((clip) => clip.id !== clipId),
+    })),
+  };
+}
+
+function replaceClip(project: Project, clipId: string, nextClip: Clip): Project {
+  return {
+    ...project,
+    tracks: project.tracks.map((track) => ({
+      ...track,
+      clips: track.clips.map((clip) => (clip.id === clipId ? nextClip : clip)),
+    })),
+  };
+}
+
+function insertClipsOnTrack(project: Project, trackId: string, clips: Clip[]): Project {
+  return updateTrack(project, trackId, (track) => ({
+    ...track,
+    clips: [...track.clips, ...clips],
+  }));
+}
+
 interface StudioContextValue {
   state: StudioState;
   project: Project;
@@ -172,6 +207,11 @@ interface StudioContextValue {
   toggleDrumStep: (clipId: string, row: keyof DrumPattern, step: number) => void;
   togglePianoNote: (clipId: string, pitch: number, stepBeat: number) => void;
   renameProject: (name: string) => void;
+  moveClip: (clipId: string, trackId: string, startBeat: number) => void;
+  resizeClip: (clipId: string, startBeat: number, durationBeat: number) => void;
+  duplicateSelectedClip: () => void;
+  splitSelectedClip: (absoluteBeat: number) => void;
+  deleteSelectedClip: () => void;
   exportWav: () => Promise<void>;
   exportMp3: () => Promise<void>;
 }
@@ -381,6 +421,81 @@ export function StudioProvider({
           type: "UPDATE_PROJECT",
           updater: (project) => ({ ...project, name }),
         }),
+      moveClip: (clipId, trackId, startBeat) =>
+        dispatch({
+          type: "UPDATE_PROJECT",
+          updater: (project) => {
+            const clip = findClip(project, clipId);
+            const sourceTrack = project.tracks.find((track) =>
+              track.clips.some((item) => item.id === clipId),
+            );
+            const targetTrack = project.tracks.find((track) => track.id === trackId);
+            if (!clip || !sourceTrack || !targetTrack) return project;
+            if (!canPlaceClipOnTrack(clip.kind, targetTrack.kind)) return project;
+
+            const moved: Clip = {
+              ...clip,
+              trackId,
+              startBeat: snapBeat(Math.max(0, startBeat)),
+            };
+            let next = removeClip(project, clipId);
+            next = insertClipsOnTrack(next, trackId, [moved]);
+            return next;
+          },
+        }),
+      resizeClip: (clipId, startBeat, durationBeat) =>
+        dispatch({
+          type: "UPDATE_PROJECT",
+          updater: (project) => {
+            const clip = findClip(project, clipId);
+            if (!clip) return project;
+
+            let next = clip;
+            if (startBeat !== clip.startBeat) {
+              next = resizeClipFromLeft(clip, startBeat - clip.startBeat) ?? next;
+            }
+            if (durationBeat !== next.durationBeat) {
+              next = resizeClipFromRight(next, durationBeat - next.durationBeat) ?? next;
+            }
+
+            return replaceClip(project, clipId, next);
+          },
+        }),
+      duplicateSelectedClip: () => {
+        const clip = findClip(state.project, state.selection.clipId);
+        if (!clip) return;
+        const copy = duplicateClip(clip);
+        dispatch({
+          type: "UPDATE_PROJECT",
+          updater: (project) => insertClipsOnTrack(project, clip.trackId, [copy]),
+        });
+        dispatch({ type: "SELECT_CLIP", clipId: copy.id });
+      },
+      splitSelectedClip: (absoluteBeat) => {
+        const clip = findClip(state.project, state.selection.clipId);
+        if (!clip) return;
+        const split = splitClipAtBeat(clip, absoluteBeat);
+        if (!split) return;
+        const [first, second] = split;
+        dispatch({
+          type: "UPDATE_PROJECT",
+          updater: (project) => {
+            let next = replaceClip(project, clip.id, first);
+            next = insertClipsOnTrack(next, clip.trackId, [second]);
+            return next;
+          },
+        });
+        dispatch({ type: "SELECT_CLIP", clipId: second.id });
+      },
+      deleteSelectedClip: () => {
+        const clipId = state.selection.clipId;
+        if (!clipId) return;
+        dispatch({
+          type: "UPDATE_PROJECT",
+          updater: (project) => removeClip(project, clipId),
+        });
+        dispatch({ type: "SELECT_CLIP", clipId: null });
+      },
       exportWav: async () => {
         const buffer = await engineExport(state.project);
         const { exportProjectWav } = await import("@/engine/export");

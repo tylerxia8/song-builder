@@ -5,6 +5,7 @@ import {
   beatToTransportTime,
   createEmptyDrumPattern,
   transportTimeToBeat,
+  STEPS_PER_PATTERN,
   type Clip,
   type DrumPattern,
   type MidiNote,
@@ -116,8 +117,12 @@ function createDrumSynth(): DrumInstrument {
   }) as DrumInstrument;
 }
 
-function patternToEvents(pattern: DrumPattern, clipStartBeat: number, bpm: number) {
-  const stepBeat = BEATS_PER_BAR / 4;
+function patternToEvents(
+  pattern: DrumPattern,
+  clipStartBeat: number,
+  durationBeat: number,
+) {
+  const stepBeat = durationBeat / STEPS_PER_PATTERN;
   const events: Array<{ time: string; note: string; duration: string; velocity: number }> = [];
 
   (Object.keys(DRUM_NOTES) as Array<keyof DrumPattern>).forEach((row) => {
@@ -288,7 +293,7 @@ export class AudioEngine {
     }
 
     if (clip.kind === "drums" && clip.pattern) {
-      const events = patternToEvents(clip.pattern, clip.startBeat, project.bpm);
+      const events = patternToEvents(clip.pattern, clip.startBeat, clip.durationBeat);
       const part = new Tone.Part((time, event) => {
         if (!isNoteEvent(event)) return;
         (nodes.instrument as DrumInstrument).triggerAttackRelease(
@@ -359,7 +364,7 @@ export class AudioEngine {
 
         track.clips.forEach((clip) => {
           if (clip.kind === "drums" && clip.pattern) {
-            const events = patternToEvents(clip.pattern, clip.startBeat, project.bpm);
+            const events = patternToEvents(clip.pattern, clip.startBeat, clip.durationBeat);
             new Tone.Part((time, event) => {
               if (!isNoteEvent(event)) return;
               (instrument as DrumInstrument).triggerAttackRelease(
