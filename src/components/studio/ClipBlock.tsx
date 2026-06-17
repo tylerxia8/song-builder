@@ -10,6 +10,7 @@ import {
 } from "@/lib/clip-editing";
 import type { Clip, Track } from "@/types/project";
 import { BEATS_PER_BAR } from "@/types/project";
+import { ClipWaveform } from "./ClipWaveform";
 
 type DragMode = "move" | "resize-left" | "resize-right";
 
@@ -171,9 +172,16 @@ export function ClipBlock({
         onPointerDown={beginDrag("resize-left")}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col justify-center px-3 py-1">
-        <span className="truncate text-xs font-semibold text-white">{clip.name}</span>
-        <span className="truncate text-[10px] capitalize text-zinc-300/80">
+      <div className="relative flex min-w-0 flex-1 flex-col justify-center px-3 py-1">
+        {clip.kind === "audio" ? (
+          <ClipWaveform
+            assetId={clip.audioAssetId}
+            audioUrl={clip.audioUrl}
+            color={track.color}
+          />
+        ) : null}
+        <span className="relative z-10 truncate text-xs font-semibold text-white">{clip.name}</span>
+        <span className="relative z-10 truncate text-[10px] capitalize text-zinc-300/80">
           {clip.kind} · {durationBeat} beats
         </span>
       </div>

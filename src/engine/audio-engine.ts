@@ -354,6 +354,17 @@ export class AudioEngine {
   async renderOffline(project: Project, durationBars: number): Promise<AudioBuffer> {
     await this.ensureStarted();
     const durationSeconds = (durationBars * BEATS_PER_BAR * 60) / project.bpm;
+    const beatToSeconds = (beat: number) => (beat * 60) / project.bpm;
+
+    const audioBuffers = new Map<string, Tone.ToneAudioBuffer>();
+    await Promise.all(
+      project.tracks.flatMap((track) =>
+        track.clips.map(async (clip) => {
+          if (clip.kind !== "audio" || !clip.audioUrl) return;
+          audioBuffers.set(clip.id, await Tone.ToneAudioBuffer.fromUrl(clip.audioUrl));
+        }),
+      ),
+    );
 
     const rendered = await Tone.Offline(() => {
       Tone.Transport.bpm.value = project.bpm;
@@ -370,6 +381,17 @@ export class AudioEngine {
         channel.toDestination();
 
         track.clips.forEach((clip) => {
+          if (clip.kind === "audio" && clip.audioUrl) {
+            const buffer = audioBuffers.get(clip.id);
+            if (!buffer) return;
+            const player = new Tone.Player(buffer).connect(channel);
+            const startSec = beatToSeconds(clip.startBeat);
+            const endSec = startSec + beatToSeconds(clip.durationBeat);
+            player.start(startSec);
+            player.stop(endSec);
+            return;
+          }
+
           if (clip.kind === "drums" && clip.pattern) {
             const events = patternToEvents(clip.pattern, clip.startBeat, clip.durationBeat);
             new Tone.Part((time, event) => {

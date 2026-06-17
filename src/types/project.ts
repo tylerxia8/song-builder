@@ -34,6 +34,7 @@ export interface Clip {
   notes?: MidiNote[];
   pattern?: DrumPattern;
   audioUrl?: string;
+  audioAssetId?: string;
   color?: string;
 }
 

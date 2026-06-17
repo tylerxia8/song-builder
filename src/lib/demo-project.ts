@@ -97,6 +97,21 @@ function leadClip(trackId: string, startBeat: number): Clip {
   };
 }
 
+export function createEmptyProject(name = "Untitled Session"): Project {
+  return {
+    id: createId("project"),
+    name,
+    bpm: 120,
+    timeSignature: [4, 4],
+    lengthBars: 32,
+    loopEnabled: true,
+    loopStartBar: 0,
+    loopEndBar: 4,
+    metronomeEnabled: true,
+    tracks: [],
+  };
+}
+
 export function createDemoProject(): Project {
   const drumTrackId = createId("track");
   const bassTrackId = createId("track");

@@ -7,10 +7,14 @@ import {
   useEffect,
   useMemo,
   useReducer,
+  useState,
   type ReactNode,
 } from "react";
 import { AudioEngine } from "@/engine/audio-engine";
-import { createDemoProject } from "@/lib/demo-project";
+import { registerAudioAsset, revokeProjectAudioUrls, collectProjectAssetIds } from "@/lib/audio-assets";
+import { createDemoProject, createEmptyProject } from "@/lib/demo-project";
+import { createInitialHistory, pushHistory, redoHistory, resolveInitialProject, undoHistory, type ProjectHistory } from "@/lib/project-history";
+import { loadProjectFromStorage, saveProjectToStorage } from "@/lib/project-storage";
 import { trackColor } from "@/lib/colors";
 import {
   canPlaceClipOnTrack,
@@ -44,6 +48,7 @@ import {
 
 interface StudioState {
   project: Project;
+  history: ProjectHistory;
   selection: StudioSelection;
   transport: {
     isPlaying: boolean;
@@ -62,22 +67,41 @@ type StudioAction =
   | { type: "SET_MASTER_VOLUME"; value: number }
   | { type: "SET_ZOOM"; value: number }
   | { type: "SET_RECORD_ERROR"; value: string | null }
-  | { type: "UPDATE_PROJECT"; updater: (project: Project) => Project }
+  | {
+      type: "UPDATE_PROJECT";
+      updater: (project: Project) => Project;
+      recordHistory?: boolean;
+    }
+  | { type: "LOAD_PROJECT"; project: Project }
+  | { type: "UNDO" }
+  | { type: "REDO" }
   | { type: "SELECT_TRACK"; trackId: string | null }
   | { type: "SELECT_CLIP"; clipId: string | null; editorMode?: EditorMode }
   | { type: "SET_EDITOR_MODE"; mode: EditorMode };
 
+function defaultSelection(project: Project): StudioSelection {
+  const firstTrack = project.tracks[0];
+  const firstClip = firstTrack?.clips[0];
+
+  return {
+    trackId: firstTrack?.id ?? null,
+    clipId: firstClip?.id ?? null,
+    editorMode:
+      firstClip?.kind === "drums"
+        ? "drum-machine"
+        : firstClip?.kind === "audio"
+          ? "audio"
+          : "piano-roll",
+  };
+}
+
 function initialState(): StudioState {
   const project = createDemoProject();
-  const firstClip = project.tracks[0]?.clips[0];
 
   return {
     project,
-    selection: {
-      trackId: project.tracks[0]?.id ?? null,
-      clipId: firstClip?.id ?? null,
-      editorMode: firstClip?.kind === "drums" ? "drum-machine" : "piano-roll",
-    },
+    history: createInitialHistory(project),
+    selection: defaultSelection(project),
     transport: {
       isPlaying: false,
       isRecording: false,
@@ -124,8 +148,37 @@ function reducer(state: StudioState, action: StudioAction): StudioState {
     }
     case "SET_EDITOR_MODE":
       return { ...state, selection: { ...state.selection, editorMode: action.mode } };
-    case "UPDATE_PROJECT":
-      return { ...state, project: action.updater(state.project) };
+    case "UPDATE_PROJECT": {
+      const nextProject = action.updater(state.project);
+      if (nextProject === state.project) return state;
+
+      const history =
+        action.recordHistory === false
+          ? state.history
+          : pushHistory(state.history, state.project);
+
+      return { ...state, project: nextProject, history };
+    }
+    case "LOAD_PROJECT":
+      revokeProjectAudioUrls(collectProjectAssetIds(state.project.tracks));
+      return {
+        ...state,
+        project: action.project,
+        history: createInitialHistory(action.project),
+        selection: defaultSelection(action.project),
+        transport: { ...state.transport, isPlaying: false, isRecording: false, currentBeat: 0 },
+        recordError: null,
+      };
+    case "UNDO": {
+      const result = undoHistory(state.history, state.project);
+      if (!result.project) return state;
+      return { ...state, project: result.project, history: result.history };
+    }
+    case "REDO": {
+      const result = redoHistory(state.history, state.project);
+      if (!result.project) return state;
+      return { ...state, project: result.project, history: result.history };
+    }
     default:
       return state;
   }
@@ -249,6 +302,16 @@ interface StudioContextValue {
   stopRecording: () => Promise<void>;
   exportWav: () => Promise<void>;
   exportMp3: () => Promise<void>;
+  undo: () => void;
+  redo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  newProject: () => void;
+  openProject: (projectId: string) => Promise<void>;
+  saveProject: () => Promise<void>;
+  isHydrated: boolean;
+  isSaving: boolean;
+  lastSavedAt: number | null;
 }
 
 const StudioContext = createContext<StudioContextValue | null>(null);
@@ -271,6 +334,36 @@ export function StudioProvider({
   engineExport: (project: Project) => Promise<AudioBuffer>;
 }) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
+  const [isHydrated, setIsHydrated] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+
+  useEffect(() => {
+    resolveInitialProject()
+      .then((project) => {
+        dispatch({ type: "LOAD_PROJECT", project });
+        setIsHydrated(true);
+      })
+      .catch(() => {
+        setIsHydrated(true);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!isHydrated) return;
+
+    const timer = setTimeout(() => {
+      setIsSaving(true);
+      saveProjectToStorage(state.project)
+        .then(() => setLastSavedAt(Date.now()))
+        .catch(() => {
+          // Ignore background autosave failures.
+        })
+        .finally(() => setIsSaving(false));
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [isHydrated, state.project]);
 
   const selectedTrack = useMemo(
     () => findTrack(state.project, state.selection.trackId),
@@ -363,7 +456,8 @@ export function StudioProvider({
 
     try {
       const { blob, durationSec } = await stopMicCapture();
-      const audioUrl = URL.createObjectURL(blob);
+      const assetId = createId("audio");
+      const audioUrl = registerAudioAsset(assetId, blob);
       const durationBeat = secondsToBeats(durationSec, state.project.bpm);
       const takeNumber = armed.clips.filter((clip) => clip.kind === "audio").length + 1;
       const clip: Clip = {
@@ -373,6 +467,7 @@ export function StudioProvider({
         kind: "audio",
         startBeat: state.transport.currentBeat,
         durationBeat,
+        audioAssetId: assetId,
         audioUrl,
       };
 
@@ -637,6 +732,32 @@ export function StudioProvider({
         const { exportProjectMp3 } = await import("@/engine/export");
         await exportProjectMp3(buffer, state.project.name);
       },
+      undo: () => dispatch({ type: "UNDO" }),
+      redo: () => dispatch({ type: "REDO" }),
+      canUndo: state.history.past.length > 0,
+      canRedo: state.history.future.length > 0,
+      newProject: () => {
+        engineStop();
+        dispatch({ type: "LOAD_PROJECT", project: createEmptyProject() });
+      },
+      openProject: async (projectId) => {
+        const project = await loadProjectFromStorage(projectId);
+        if (!project) return;
+        engineStop();
+        dispatch({ type: "LOAD_PROJECT", project });
+      },
+      saveProject: async () => {
+        setIsSaving(true);
+        try {
+          await saveProjectToStorage(state.project);
+          setLastSavedAt(Date.now());
+        } finally {
+          setIsSaving(false);
+        }
+      },
+      isHydrated,
+      isSaving,
+      lastSavedAt,
     }),
     [
       engineExport,
@@ -644,6 +765,9 @@ export function StudioProvider({
       engineSetMasterVolume,
       engineSync,
       engineStop,
+      isHydrated,
+      isSaving,
+      lastSavedAt,
       play,
       setupRecordingTrack,
       startRecording,
@@ -657,6 +781,18 @@ export function StudioProvider({
   );
 
   return <StudioContext.Provider value={value}>{children}</StudioContext.Provider>;
+}
+
+export function useStudioHydrationGate(children: ReactNode) {
+  const { isHydrated } = useStudio();
+  if (!isHydrated) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#0b0b10] text-sm text-zinc-400">
+        Loading session…
+      </div>
+    );
+  }
+  return children;
 }
 
 export function useStudioTransportSync() {

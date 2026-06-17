@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo } from "react";
 import { AudioEngine } from "@/engine/audio-engine";
-import { StudioProvider, useStudioTransportSync } from "@/store/project-store";
+import { StudioProvider, useStudioHydrationGate, useStudioTransportSync } from "@/store/project-store";
 import { ArrangementView } from "./ArrangementView";
 import { BottomEditor } from "./BottomEditor";
 import { BrowserPanel } from "./BrowserPanel";
@@ -13,7 +13,7 @@ import { TransportPanel } from "./TransportPanel";
 function StudioInner() {
   useStudioTransportSync();
 
-  return (
+  return useStudioHydrationGate(
     <div className="flex h-screen flex-col overflow-hidden bg-[#0b0b10] text-white">
       <MenuBar />
       <TransportPanel />
@@ -25,7 +25,7 @@ function StudioInner() {
         </div>
         <MixerPanel />
       </div>
-    </div>
+    </div>,
   );
 }
 

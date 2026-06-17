@@ -10,14 +10,27 @@ export function ClipKeyboardShortcuts() {
     duplicateSelectedClip,
     splitSelectedClip,
     deleteSelectedClip,
+    undo,
+    redo,
   } = useStudio();
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!selectedClip) return;
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
         return;
       }
+
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        if (event.shiftKey) {
+          redo();
+        } else {
+          undo();
+        }
+        return;
+      }
+
+      if (!selectedClip) return;
 
       if (event.key === "Delete" || event.key === "Backspace") {
         event.preventDefault();
@@ -41,10 +54,11 @@ export function ClipKeyboardShortcuts() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
     deleteSelectedClip,
-    duplicateSelectedClip,
+    redo,
     selectedClip,
     splitSelectedClip,
     state.transport.currentBeat,
+    undo,
   ]);
 
   return null;
