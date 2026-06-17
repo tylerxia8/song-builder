@@ -1,5 +1,6 @@
 "use client";
 
+import { STARTER_TEMPLATE_STEPS } from "@/lib/starter-template";
 import { useStudio } from "@/store/project-store";
 import type { TrackKind } from "@/types/project";
 import { RecordPanel } from "./RecordPanel";
@@ -13,7 +14,7 @@ const instruments = [
 ] as const;
 
 export function BrowserPanel() {
-  const { addTrack, setTrackInstrument, selectedTrack } = useStudio();
+  const { addTrack, loadStarterTemplate, setTrackInstrument, selectedTrack } = useStudio();
 
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-white/10 bg-[#101018]">
@@ -22,6 +23,27 @@ export function BrowserPanel() {
       </div>
 
       <div className="space-y-4 overflow-auto p-3 daw-scrollbar">
+        <section>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+            Starter Template
+          </p>
+          <button
+            type="button"
+            onClick={loadStarterTemplate}
+            className="w-full rounded-md border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-left text-xs font-medium text-violet-100 transition hover:border-violet-400/50 hover:bg-violet-500/15"
+          >
+            Minimal Pop Starter
+            <span className="mt-0.5 block text-[10px] font-normal text-zinc-400">
+              120 BPM · Am F C G · drums, bass, chords, vocal
+            </span>
+          </button>
+          <ol className="mt-2 list-decimal space-y-1 pl-4 text-[10px] leading-relaxed text-zinc-500">
+            {STARTER_TEMPLATE_STEPS.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+        </section>
+
         <RecordPanel />
 
         <section>

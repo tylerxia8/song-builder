@@ -16,6 +16,7 @@ export function MenuBar() {
     canRedo,
     undo,
     redo,
+    loadStarterTemplate,
     newProject,
     openProject,
     saveProject,
@@ -94,6 +95,16 @@ export function MenuBar() {
                 >
                   Save
                 </button>
+                <button
+                  type="button"
+                  className="block w-full px-3 py-2 text-left hover:bg-white/5"
+                  onClick={() => {
+                    loadStarterTemplate();
+                    setOpenMenu(null);
+                  }}
+                >
+                  Load Minimal Pop Starter
+                </button>
                 <div className="my-1 border-t border-white/10" />
                 <p className="px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-zinc-500">
                   Open Recent
@@ -156,7 +167,7 @@ export function MenuBar() {
                     setOpenMenu(null);
                   }}
                 >
-                  Redo <span className="text-zinc-500">Ctrl+Shift+Z</span>
+                  Redo <span className="text-zinc-500">Ctrl+Y</span>
                 </button>
               </div>
             ) : null}

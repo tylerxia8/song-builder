@@ -13,6 +13,7 @@ import {
 import { AudioEngine } from "@/engine/audio-engine";
 import { registerAudioAsset, revokeProjectAudioUrls, collectProjectAssetIds } from "@/lib/audio-assets";
 import { createDemoProject, createEmptyProject } from "@/lib/demo-project";
+import { createStarterTemplate } from "@/lib/starter-template";
 import { createInitialHistory, pushHistory, redoHistory, resolveInitialProject, undoHistory, type ProjectHistory } from "@/lib/project-history";
 import { loadProjectFromStorage, saveProjectToStorage } from "@/lib/project-storage";
 import { trackColor } from "@/lib/colors";
@@ -307,6 +308,7 @@ interface StudioContextValue {
   canUndo: boolean;
   canRedo: boolean;
   newProject: () => void;
+  loadStarterTemplate: () => void;
   openProject: (projectId: string) => Promise<void>;
   saveProject: () => Promise<void>;
   isHydrated: boolean;
@@ -739,6 +741,16 @@ export function StudioProvider({
       newProject: () => {
         engineStop();
         dispatch({ type: "LOAD_PROJECT", project: createEmptyProject() });
+      },
+      loadStarterTemplate: () => {
+        engineStop();
+        const project = createStarterTemplate();
+        dispatch({ type: "LOAD_PROJECT", project });
+        const vocalTrack = project.tracks.find((track) => track.kind === "audio");
+        if (vocalTrack) {
+          dispatch({ type: "SELECT_TRACK", trackId: vocalTrack.id });
+          dispatch({ type: "SELECT_CLIP", clipId: null, editorMode: "audio" });
+        }
       },
       openProject: async (projectId) => {
         const project = await loadProjectFromStorage(projectId);
