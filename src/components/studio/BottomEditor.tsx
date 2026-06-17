@@ -128,13 +128,32 @@ export function BottomEditor() {
         )}
 
         {selectedClip && selection.editorMode === "audio" && (
-          <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-zinc-400">
-            <p>Audio clip editor</p>
-            <p className="text-xs text-zinc-500">
-              {selectedClip.audioUrl
-                ? "Recorded audio clip — waveform editing coming next."
-                : "Record onto an armed audio track to create audio clips."}
-            </p>
+          <div className="flex h-full flex-col gap-3">
+            {selectedClip.audioUrl ? (
+              <>
+                <p className="text-sm text-zinc-200">{selectedClip.name}</p>
+                <p className="text-xs text-zinc-500">
+                  Recorded take · {selectedClip.durationBeat.toFixed(1)} beats on the timeline
+                </p>
+                <audio
+                  controls
+                  src={selectedClip.audioUrl}
+                  className="w-full max-w-md"
+                />
+                <p className="text-xs text-zinc-500">
+                  Press Play in the transport bar to hear it in the full mix, or use the preview
+                  above.
+                </p>
+              </>
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-zinc-400">
+                <p>No audio clip selected</p>
+                <p className="max-w-sm text-center text-xs text-zinc-500">
+                  Use Set up voice track in the browser, arm a lane, then press Record in the
+                  transport bar.
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>

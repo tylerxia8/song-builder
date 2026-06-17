@@ -29,8 +29,10 @@ export function pixelsToBeats(pixels: number, barWidthPx: number): number {
 }
 
 export function canPlaceClipOnTrack(clipKind: Clip["kind"], trackKind: TrackKind): boolean {
+  if (clipKind === "audio") {
+    return trackKind === "audio" || trackKind === "instrument" || trackKind === "drums";
+  }
   if (clipKind === "drums") return trackKind === "drums";
-  if (clipKind === "audio") return trackKind === "audio";
   return trackKind === "instrument";
 }
 

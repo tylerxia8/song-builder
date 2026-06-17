@@ -93,11 +93,12 @@ export function ArrangementView() {
                   onClick={() => armTrack(track.id)}
                   className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
                     track.armed
-                      ? "bg-red-500 text-white"
+                      ? "bg-red-500 text-white shadow-[0_0_10px_rgba(239,68,68,0.35)]"
                       : "bg-[#1a1a24] text-zinc-400 hover:text-red-200"
                   }`}
+                  title="Select this track for your next recording"
                 >
-                  Record
+                  {track.armed ? "Armed" : "Arm"}
                 </button>
                 <button
                   type="button"
@@ -160,7 +161,9 @@ export function ArrangementView() {
             {project.tracks.map((track, trackIndex) => (
               <div
                 key={track.id}
-                className="relative h-16 border-b border-white/10 bg-[#101018]/40"
+                className={`relative h-16 border-b border-white/10 ${
+                  track.armed ? "bg-red-500/[0.06]" : "bg-[#101018]/40"
+                }`}
               >
                 <div
                   className="pointer-events-none absolute inset-0 opacity-50"

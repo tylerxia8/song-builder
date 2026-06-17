@@ -21,6 +21,13 @@ import {
   splitClipAtBeat,
 } from "@/lib/clip-editing";
 import {
+  cancelMicCapture,
+  micPermissionMessage,
+  secondsToBeats,
+  startMicCapture,
+  stopMicCapture,
+} from "@/lib/recording";
+import {
   BEATS_PER_BAR,
   createEmptyDrumPattern,
   createId,
@@ -45,6 +52,7 @@ interface StudioState {
   };
   masterVolume: number;
   zoom: number;
+  recordError: string | null;
 }
 
 type StudioAction =
@@ -53,6 +61,7 @@ type StudioAction =
   | { type: "SET_CURRENT_BEAT"; value: number }
   | { type: "SET_MASTER_VOLUME"; value: number }
   | { type: "SET_ZOOM"; value: number }
+  | { type: "SET_RECORD_ERROR"; value: string | null }
   | { type: "UPDATE_PROJECT"; updater: (project: Project) => Project }
   | { type: "SELECT_TRACK"; trackId: string | null }
   | { type: "SELECT_CLIP"; clipId: string | null; editorMode?: EditorMode }
@@ -76,6 +85,7 @@ function initialState(): StudioState {
     },
     masterVolume: 0.92,
     zoom: 1,
+    recordError: null,
   };
 }
 
@@ -91,6 +101,8 @@ function reducer(state: StudioState, action: StudioAction): StudioState {
       return { ...state, masterVolume: action.value };
     case "SET_ZOOM":
       return { ...state, zoom: action.value };
+    case "SET_RECORD_ERROR":
+      return { ...state, recordError: action.value };
     case "SELECT_TRACK":
       return { ...state, selection: { ...state.selection, trackId: action.trackId } };
     case "SELECT_CLIP": {
@@ -177,12 +189,32 @@ function insertClipsOnTrack(project: Project, trackId: string, clips: Clip[]): P
   }));
 }
 
+function createTrackForKind(project: Project, kind: TrackKind, name?: string): Track {
+  return {
+    id: createId("track"),
+    name:
+      name ??
+      (kind === "drums" ? "Drums" : kind === "audio" ? "Audio" : `Instrument ${project.tracks.length + 1}`),
+    kind,
+    color: trackColor(project.tracks.length),
+    instrument: "grand-piano",
+    volume: 0.8,
+    pan: 0,
+    muted: false,
+    solo: false,
+    armed: false,
+    clips: [],
+  };
+}
+
 interface StudioContextValue {
   state: StudioState;
   project: Project;
   selection: StudioSelection;
   selectedTrack: Track | null;
   selectedClip: Clip | null;
+  armedTrack: Track | null;
+  recordError: string | null;
   play: () => Promise<void>;
   stop: () => void;
   toggleLoop: () => void;
@@ -212,6 +244,9 @@ interface StudioContextValue {
   duplicateSelectedClip: () => void;
   splitSelectedClip: (absoluteBeat: number) => void;
   deleteSelectedClip: () => void;
+  setupRecordingTrack: (name?: string) => void;
+  startRecording: () => Promise<void>;
+  stopRecording: () => Promise<void>;
   exportWav: () => Promise<void>;
   exportMp3: () => Promise<void>;
 }
@@ -247,6 +282,11 @@ export function StudioProvider({
     [state.project, state.selection.clipId],
   );
 
+  const armedTrack = useMemo(
+    () => state.project.tracks.find((track) => track.armed) ?? null,
+    [state.project.tracks],
+  );
+
   const play = useCallback(async () => {
     engineSync(state.project, state.masterVolume);
     await enginePlay(state.project, state.transport.currentBeat);
@@ -254,11 +294,103 @@ export function StudioProvider({
   }, [enginePlay, engineSync, state.masterVolume, state.project, state.transport.currentBeat]);
 
   const stop = useCallback(() => {
+    if (state.transport.isRecording) {
+      cancelMicCapture();
+      dispatch({ type: "SET_RECORDING", value: false });
+    }
     engineStop();
     dispatch({ type: "SET_PLAYING", value: false });
-    dispatch({ type: "SET_RECORDING", value: false });
     dispatch({ type: "SET_CURRENT_BEAT", value: 0 });
-  }, [engineStop]);
+  }, [engineStop, state.transport.isRecording]);
+
+  const setupRecordingTrack = useCallback((name = "My Voice") => {
+    dispatch({ type: "SET_RECORD_ERROR", value: null });
+
+    const existingAudio = state.project.tracks.find((track) => track.kind === "audio");
+    if (existingAudio) {
+      dispatch({
+        type: "UPDATE_PROJECT",
+        updater: (project) => ({
+          ...project,
+          tracks: project.tracks.map((track) => ({
+            ...track,
+            armed: track.id === existingAudio.id,
+          })),
+        }),
+      });
+      dispatch({ type: "SELECT_TRACK", trackId: existingAudio.id });
+      dispatch({ type: "SELECT_CLIP", clipId: null, editorMode: "audio" });
+      return;
+    }
+
+    const newTrack = createTrackForKind(state.project, "audio", name);
+    dispatch({
+      type: "UPDATE_PROJECT",
+      updater: (project) => ({
+        ...project,
+        tracks: [...project.tracks.map((track) => ({ ...track, armed: false })), { ...newTrack, armed: true }],
+      }),
+    });
+    dispatch({ type: "SELECT_TRACK", trackId: newTrack.id });
+    dispatch({ type: "SELECT_CLIP", clipId: null, editorMode: "audio" });
+  }, [state.project]);
+
+  const startRecording = useCallback(async () => {
+    const armed = state.project.tracks.find((track) => track.armed);
+    if (!armed) {
+      dispatch({
+        type: "SET_RECORD_ERROR",
+        value: "Choose a track and click Arm for recording before you start.",
+      });
+      return;
+    }
+
+    dispatch({ type: "SET_RECORD_ERROR", value: null });
+    engineStop();
+    dispatch({ type: "SET_PLAYING", value: false });
+
+    try {
+      await startMicCapture();
+      dispatch({ type: "SET_RECORDING", value: true });
+    } catch (error) {
+      dispatch({ type: "SET_RECORD_ERROR", value: micPermissionMessage(error) });
+    }
+  }, [engineStop, state.project.tracks]);
+
+  const stopRecording = useCallback(async () => {
+    const armed = state.project.tracks.find((track) => track.armed);
+    if (!armed || !state.transport.isRecording) return;
+
+    try {
+      const { blob, durationSec } = await stopMicCapture();
+      const audioUrl = URL.createObjectURL(blob);
+      const durationBeat = secondsToBeats(durationSec, state.project.bpm);
+      const takeNumber = armed.clips.filter((clip) => clip.kind === "audio").length + 1;
+      const clip: Clip = {
+        id: createId("clip"),
+        trackId: armed.id,
+        name: `${armed.name} Take ${takeNumber}`,
+        kind: "audio",
+        startBeat: state.transport.currentBeat,
+        durationBeat,
+        audioUrl,
+      };
+
+      dispatch({
+        type: "UPDATE_PROJECT",
+        updater: (project) => insertClipsOnTrack(project, armed.id, [clip]),
+      });
+      dispatch({ type: "SELECT_CLIP", clipId: clip.id, editorMode: "audio" });
+      dispatch({ type: "SET_RECORD_ERROR", value: null });
+    } catch (error) {
+      dispatch({
+        type: "SET_RECORD_ERROR",
+        value: error instanceof Error ? error.message : "Could not save your recording.",
+      });
+    } finally {
+      dispatch({ type: "SET_RECORDING", value: false });
+    }
+  }, [state.project.bpm, state.project.tracks, state.transport.currentBeat, state.transport.isRecording]);
 
   const value = useMemo<StudioContextValue>(
     () => ({
@@ -267,6 +399,8 @@ export function StudioProvider({
       selection: state.selection,
       selectedTrack,
       selectedClip,
+      armedTrack,
+      recordError: state.recordError,
       play,
       stop,
       toggleLoop: () =>
@@ -296,23 +430,10 @@ export function StudioProvider({
       addTrack: (kind) =>
         dispatch({
           type: "UPDATE_PROJECT",
-          updater: (project) => {
-            const track: Track = {
-              id: createId("track"),
-              name:
-                kind === "drums" ? "Drums" : kind === "audio" ? "Audio" : `Instrument ${project.tracks.length + 1}`,
-              kind,
-              color: trackColor(project.tracks.length),
-              instrument: kind === "drums" ? "grand-piano" : "grand-piano",
-              volume: 0.8,
-              pan: 0,
-              muted: false,
-              solo: false,
-              armed: false,
-              clips: [],
-            };
-            return { ...project, tracks: [...project.tracks, track] };
-          },
+          updater: (project) => ({
+            ...project,
+            tracks: [...project.tracks, createTrackForKind(project, kind)],
+          }),
         }),
       removeTrack: (trackId) =>
         dispatch({
@@ -322,7 +443,7 @@ export function StudioProvider({
             tracks: project.tracks.filter((track) => track.id !== trackId),
           }),
         }),
-      armTrack: (trackId) =>
+      armTrack: (trackId) => {
         dispatch({
           type: "UPDATE_PROJECT",
           updater: (project) => ({
@@ -332,7 +453,10 @@ export function StudioProvider({
               armed: track.id === trackId,
             })),
           }),
-        }),
+        });
+        dispatch({ type: "SELECT_TRACK", trackId });
+        dispatch({ type: "SET_RECORD_ERROR", value: null });
+      },
       updateTrackMix: (trackId, patch) =>
         dispatch({
           type: "UPDATE_PROJECT",
@@ -500,6 +624,9 @@ export function StudioProvider({
         });
         dispatch({ type: "SELECT_CLIP", clipId: null });
       },
+      setupRecordingTrack,
+      startRecording,
+      stopRecording,
       exportWav: async () => {
         const buffer = await engineExport(state.project);
         const { exportProjectWav } = await import("@/engine/export");
@@ -518,8 +645,12 @@ export function StudioProvider({
       engineSync,
       engineStop,
       play,
+      setupRecordingTrack,
+      startRecording,
+      stopRecording,
       selectedClip,
       selectedTrack,
+      armedTrack,
       state,
       stop,
     ],

@@ -2,6 +2,7 @@
 
 import { useStudio } from "@/store/project-store";
 import type { TrackKind } from "@/types/project";
+import { RecordPanel } from "./RecordPanel";
 
 const instruments = [
   { id: "grand-piano", label: "Grand Piano" },
@@ -20,7 +21,9 @@ export function BrowserPanel() {
         Browser
       </div>
 
-      <div className="space-y-4 p-3">
+      <div className="space-y-4 overflow-auto p-3 daw-scrollbar">
+        <RecordPanel />
+
         <section>
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
             Add Track
@@ -28,11 +31,11 @@ export function BrowserPanel() {
           <div className="flex flex-col gap-1.5">
             {(
               [
-                ["instrument", "Instrument"],
-                ["drums", "Drums"],
-                ["audio", "Audio"],
+                ["audio", "Voice / Audio", "Record vocals, hums, or instruments"],
+                ["instrument", "Instrument", "MIDI clips and synth playback"],
+                ["drums", "Drums", "Step sequencer patterns"],
               ] as const
-            ).map(([kind, label]) => (
+            ).map(([kind, label, hint]) => (
               <button
                 key={kind}
                 type="button"
@@ -40,6 +43,7 @@ export function BrowserPanel() {
                 className="rounded-md border border-white/10 bg-[#15151f] px-3 py-2 text-left text-xs font-medium text-zinc-200 transition hover:border-violet-500/30 hover:bg-violet-500/10"
               >
                 + {label}
+                <span className="mt-0.5 block text-[10px] font-normal text-zinc-500">{hint}</span>
               </button>
             ))}
           </div>
@@ -54,7 +58,7 @@ export function BrowserPanel() {
               <button
                 key={item.id}
                 type="button"
-                disabled={!selectedTrack || selectedTrack.kind === "drums"}
+                disabled={!selectedTrack || selectedTrack.kind === "drums" || selectedTrack.kind === "audio"}
                 onClick={() =>
                   selectedTrack && setTrackInstrument(selectedTrack.id, item.id)
                 }
@@ -64,14 +68,6 @@ export function BrowserPanel() {
               </button>
             ))}
           </div>
-        </section>
-
-        <section className="rounded-lg border border-white/10 bg-[#0d0d14] p-3 text-xs leading-relaxed text-zinc-400">
-          <p className="font-semibold text-zinc-200">Quick start</p>
-          <p className="mt-2">
-            Press Play to hear the demo arrangement. Select a clip below to edit drums or
-            notes, then export your mix.
-          </p>
         </section>
       </div>
     </aside>
