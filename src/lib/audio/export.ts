@@ -1,21 +1,11 @@
-import type { TrackRecording, TrackType } from "@/lib/types";
+import type { PlaybackMixOptions, TrackRecording } from "@/lib/types";
+import { getEffectiveTrackMix } from "@/lib/mix";
 import { audioBufferToBlob, decodeAudioBlob } from "./decode";
 
-const TRACK_PAN: Record<TrackType, number> = {
-  melody: 0.08,
-  harmony: 0.42,
-  bass: -0.28,
-  drums: 0,
-};
-
-const TRACK_GAIN: Record<TrackType, number> = {
-  melody: 0.78,
-  harmony: 0.62,
-  bass: 0.82,
-  drums: 0.88,
-};
-
-export async function mixProducedTracks(tracks: TrackRecording[]): Promise<AudioBuffer> {
+export async function mixProducedTracks(
+  tracks: TrackRecording[],
+  mix: PlaybackMixOptions,
+): Promise<AudioBuffer> {
   const readyTracks = tracks.filter((track) => track.producedAudioUrl);
   if (readyTracks.length === 0) {
     throw new Error("No produced tracks to export.");
@@ -38,19 +28,26 @@ export async function mixProducedTracks(tracks: TrackRecording[]): Promise<Audio
     sampleRate,
   );
 
+  const masterGain = offline.createGain();
+  masterGain.gain.value = mix.masterVolume;
+  masterGain.connect(offline.destination);
+
   decoded.forEach(({ type, buffer }) => {
+    const effectiveMix = getEffectiveTrackMix(mix, type);
+    if (!effectiveMix) return;
+
     const source = offline.createBufferSource();
     source.buffer = buffer;
 
     const gain = offline.createGain();
-    gain.gain.value = TRACK_GAIN[type];
+    gain.gain.value = effectiveMix.volume;
 
     const panner = offline.createStereoPanner();
-    panner.pan.value = TRACK_PAN[type];
+    panner.pan.value = effectiveMix.pan;
 
     source.connect(gain);
     gain.connect(panner);
-    panner.connect(offline.destination);
+    panner.connect(masterGain);
     source.start(0);
   });
 
@@ -66,14 +63,20 @@ export function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-export async function exportSongAsWav(tracks: TrackRecording[]): Promise<void> {
-  const mixed = await mixProducedTracks(tracks);
+export async function exportSongAsWav(
+  tracks: TrackRecording[],
+  mix: PlaybackMixOptions,
+): Promise<void> {
+  const mixed = await mixProducedTracks(tracks, mix);
   const blob = audioBufferToBlob(mixed);
   downloadBlob(blob, `songbuilder-${timestamp()}.wav`);
 }
 
-export async function exportSongAsMp3(tracks: TrackRecording[]): Promise<void> {
-  const mixed = await mixProducedTracks(tracks);
+export async function exportSongAsMp3(
+  tracks: TrackRecording[],
+  mix: PlaybackMixOptions,
+): Promise<void> {
+  const mixed = await mixProducedTracks(tracks, mix);
   const blob = await encodeMp3(mixed);
   downloadBlob(blob, `songbuilder-${timestamp()}.mp3`);
 }

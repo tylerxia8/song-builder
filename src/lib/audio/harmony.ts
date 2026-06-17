@@ -157,13 +157,24 @@ export function quantizeNotes(
   bpm: number,
   division = 4,
   gridOriginSec = 0,
+  swing = 0,
 ): NoteEvent[] {
   const grid = 60 / bpm / division;
-  return notes.map((note) => ({
-    ...note,
-    time: gridOriginSec + Math.round((note.time - gridOriginSec) / grid) * grid,
-    duration: Math.max(grid, Math.round(note.duration / grid) * grid),
-  }));
+
+  return notes.map((note) => {
+    const gridIndex = Math.round((note.time - gridOriginSec) / grid);
+    let time = gridOriginSec + gridIndex * grid;
+
+    if (swing > 0 && gridIndex % 2 === 1) {
+      time += grid * swing;
+    }
+
+    return {
+      ...note,
+      time,
+      duration: Math.max(grid, Math.round(note.duration / grid) * grid),
+    };
+  });
 }
 
 export function snapNotesToHarmony(

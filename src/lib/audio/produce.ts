@@ -39,6 +39,7 @@ interface ProduceContext {
   melodyNotes: NoteEvent[];
   key: ReturnType<typeof parseKeyLabel>;
   autotuneEnabled: boolean;
+  swing: number;
 }
 
 interface ProduceTrackInput {
@@ -62,6 +63,7 @@ export async function produceSongWithSummary(
   options: ProduceOptions = {},
 ): Promise<ProductionSummary> {
   const autotuneEnabled = options.autotuneEnabled ?? true;
+  const swing = options.swing ?? 0;
   const warnings: string[] = [];
   const recordedTracks = tracks.filter((track) => track.audioBlob);
 
@@ -93,9 +95,10 @@ export async function produceSongWithSummary(
     throw new Error("Could not read any recorded layers.");
   }
 
-  const { masterBpm, syncByTrack } = computeAutofit(
+  const { masterBpm: detectedBpm, syncByTrack } = computeAutofit(
     decoded.map(({ recording, buffer }) => ({ type: recording.type, buffer })),
   );
+  const masterBpm = options.manualBpm ?? detectedBpm;
 
   const melodyTrack = decoded.find(({ recording }) => recording.type === "melody");
   const melodySync = syncByTrack.melody ?? {
@@ -106,7 +109,7 @@ export async function produceSongWithSummary(
   };
 
   let melodyNotes = melodyTrack
-    ? prepareMelodyNotes(melodyTrack.buffer, melodySync, masterBpm)
+    ? prepareMelodyNotes(melodyTrack.buffer, melodySync, masterBpm, swing)
     : [];
 
   if (melodyNotes.length === 0) {
@@ -116,6 +119,7 @@ export async function produceSongWithSummary(
         fallback.buffer,
         syncByTrack[fallback.recording.type],
         masterBpm,
+        swing,
       );
     }
   }
@@ -130,6 +134,9 @@ export async function produceSongWithSummary(
   );
 
   const harmony = analyzeHarmony(melodyNotes, masterBpm, maxDuration);
+  if (options.manualKey) {
+    harmony.detectedKey = options.manualKey;
+  }
   const key = parseKeyLabel(harmony.detectedKey);
   const chordSegments: ChordSegment[] = harmony.chordProgression.map((chord) => ({
     time: chord.time,
@@ -144,6 +151,7 @@ export async function produceSongWithSummary(
     melodyNotes,
     key,
     autotuneEnabled,
+    swing,
   };
 
   const produced: TrackRecording[] = [];
@@ -176,8 +184,9 @@ function prepareMelodyNotes(
   buffer: AudioBuffer,
   syncSettings: SyncSettings,
   masterBpm: number,
+  swing: number,
 ): NoteEvent[] {
-  return alignNotesToBeatGrid(buffer, syncSettings, masterBpm);
+  return alignNotesToBeatGrid(buffer, syncSettings, masterBpm, swing);
 }
 
 function chordLabelToRoot(label: string): number {
@@ -294,6 +303,7 @@ function alignNotesToBeatGrid(
   buffer: AudioBuffer,
   syncSettings: SyncSettings,
   bpm: number,
+  swing = 0,
 ): NoteEvent[] {
   return quantizeNotes(
     scaleNoteTimes(
@@ -303,7 +313,12 @@ function alignNotesToBeatGrid(
     bpm,
     4,
     0,
+    swing,
   );
+}
+
+function quantizeForContext(notes: NoteEvent[], context: ProduceContext): NoteEvent[] {
+  return quantizeNotes(notes, context.masterBpm, 4, 0, context.swing);
 }
 
 function resolveMusicalNotes(
@@ -315,11 +330,9 @@ function resolveMusicalNotes(
   const rawNotes = alignNotesToBeatGrid(buffer, syncSettings, context.masterBpm);
 
   if (type === "melody") {
-    const notes = quantizeNotes(
+    const notes = quantizeForContext(
       rawNotes.length > 0 ? rawNotes : generateChordPad(context.chordSegments, context.masterBpm),
-      context.masterBpm,
-      4,
-      0,
+      context,
     );
     return maybeAutotuneNotes(type, notes, context);
   }
@@ -335,11 +348,9 @@ function resolveMusicalNotes(
           );
     return maybeAutotuneNotes(
       type,
-      quantizeNotes(
+      quantizeForContext(
         notes.length > 0 ? notes : generateChordPad(context.chordSegments, context.masterBpm),
-        context.masterBpm,
-        4,
-        0,
+        context,
       ),
       context,
     );
@@ -350,11 +361,7 @@ function resolveMusicalNotes(
       rawNotes.length >= 2
         ? snapNotesToBass(rawNotes, context.chordSegments)
         : generateBassLine(context.chordSegments, context.masterBpm);
-    return maybeAutotuneNotes(
-      type,
-      quantizeNotes(notes, context.masterBpm, 4, 0),
-      context,
-    );
+    return maybeAutotuneNotes(type, quantizeForContext(notes, context), context);
   }
 
   return rawNotes;
@@ -374,6 +381,7 @@ async function renderAutotunedOriginal(
     context.masterBpm,
     4,
     0,
+    context.swing,
   );
 
   if (rawNotes.length === 0) {

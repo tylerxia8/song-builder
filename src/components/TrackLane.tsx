@@ -1,6 +1,7 @@
 "use client";
 
-import type { InstrumentId, TrackDefinition, TrackRecording } from "@/lib/types";
+import type { InstrumentId, TrackDefinition, TrackRecording, TrackType } from "@/lib/types";
+import type { TrackMixSettings } from "@/lib/mix";
 import { getInstrumentOptionsForTrack } from "@/lib/tracks";
 import { TRACK_COLOR_BG, TRACK_COLORS } from "@/lib/track-colors";
 import { AudioWaveform } from "./AudioWaveform";
@@ -8,12 +9,16 @@ import { AudioWaveform } from "./AudioWaveform";
 interface TrackLaneProps {
   definition: TrackDefinition;
   recording: TrackRecording;
+  mix: TrackMixSettings;
   isArmed: boolean;
   isRecording: boolean;
+  playheadSec: number | null;
+  timelineDuration: number;
   onArm: () => void;
   onPlay: () => void;
   onClear: () => void;
   onInstrumentChange: (instrument: InstrumentId) => void;
+  onMixChange: (type: TrackType, mix: Partial<TrackMixSettings>) => void;
 }
 
 const statusLabels = {
@@ -26,12 +31,16 @@ const statusLabels = {
 export function TrackLane({
   definition,
   recording,
+  mix,
   isArmed,
   isRecording,
+  playheadSec,
+  timelineDuration,
   onArm,
   onPlay,
   onClear,
   onInstrumentChange,
+  onMixChange,
 }: TrackLaneProps) {
   const color = TRACK_COLORS[definition.type];
   const colorBg = TRACK_COLOR_BG[definition.type];
@@ -40,6 +49,11 @@ export function TrackLane({
     recording.status === "ready" && recording.producedAudioUrl
       ? recording.producedAudioUrl
       : recording.audioUrl;
+
+  const playheadPercent =
+    playheadSec !== null && timelineDuration > 0
+      ? Math.min(100, (playheadSec / timelineDuration) * 100)
+      : null;
 
   return (
     <div
@@ -64,11 +78,69 @@ export function TrackLane({
           >
             R
           </button>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold text-white">{definition.label}</p>
-            <p className="truncate text-[11px] text-zinc-500">{statusLabels[recording.status]}</p>
-          </div>
+          <button
+            type="button"
+            onClick={() => onMixChange(definition.type, { muted: !mix.muted })}
+            className={`flex h-7 w-7 items-center justify-center rounded text-[11px] font-bold transition ${
+              mix.muted
+                ? "bg-amber-500/25 text-amber-200"
+                : "bg-[#1a1a24] text-zinc-400 hover:bg-amber-500/15 hover:text-amber-100"
+            }`}
+            title="Mute track"
+          >
+            M
+          </button>
+          <button
+            type="button"
+            onClick={() => onMixChange(definition.type, { solo: !mix.solo })}
+            className={`flex h-7 w-7 items-center justify-center rounded text-[11px] font-bold transition ${
+              mix.solo
+                ? "bg-sky-500/25 text-sky-200"
+                : "bg-[#1a1a24] text-zinc-400 hover:bg-sky-500/15 hover:text-sky-100"
+            }`}
+            title="Solo track"
+          >
+            S
+          </button>
         </div>
+
+        <div className="mt-2 min-w-0">
+          <p className="truncate text-sm font-semibold text-white">{definition.label}</p>
+          <p className="truncate text-[11px] text-zinc-500">{statusLabels[recording.status]}</p>
+        </div>
+
+        <label className="mt-3 flex flex-col gap-1">
+          <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+            Vol {Math.round(mix.volume * 100)}%
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={mix.volume}
+            onChange={(event) =>
+              onMixChange(definition.type, { volume: Number(event.target.value) })
+            }
+            className="accent-violet-500"
+          />
+        </label>
+
+        <label className="mt-2 flex flex-col gap-1">
+          <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+            Pan {mix.pan > 0 ? "R" : mix.pan < 0 ? "L" : "C"}
+            {Math.abs(mix.pan) > 0.05 ? Math.round(Math.abs(mix.pan) * 100) : ""}
+          </span>
+          <input
+            type="range"
+            min={-1}
+            max={1}
+            step={0.01}
+            value={mix.pan}
+            onChange={(event) => onMixChange(definition.type, { pan: Number(event.target.value) })}
+            className="accent-violet-500"
+          />
+        </label>
 
         <label className="mt-3 flex flex-col gap-1">
           <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">Instrument</span>
@@ -93,7 +165,7 @@ export function TrackLane({
             disabled={!recording.audioUrl}
             className="rounded border border-white/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-300 transition hover:bg-white/10 disabled:opacity-40"
           >
-            Solo
+            Audition
           </button>
           <button
             type="button"
@@ -106,10 +178,7 @@ export function TrackLane({
         </div>
       </div>
 
-      <div
-        className="relative min-h-[5.5rem] p-2"
-        style={{ backgroundColor: colorBg }}
-      >
+      <div className="relative min-h-[5.5rem] p-2" style={{ backgroundColor: colorBg }}>
         <div
           className="pointer-events-none absolute inset-0 opacity-60"
           style={{
@@ -118,6 +187,13 @@ export function TrackLane({
             backgroundSize: "48px 100%",
           }}
         />
+
+        {playheadPercent !== null && (
+          <div
+            className="pointer-events-none absolute bottom-0 top-0 z-20 w-px bg-white/80 shadow-[0_0_8px_rgba(255,255,255,0.45)]"
+            style={{ left: `${playheadPercent}%` }}
+          />
+        )}
 
         {isRecording && isArmed && (
           <div className="absolute left-3 top-2 z-10 flex items-center gap-2 rounded bg-red-500/20 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-red-200">

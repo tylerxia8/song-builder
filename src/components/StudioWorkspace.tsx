@@ -4,13 +4,28 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChordSuggestions } from "@/components/ChordSuggestions";
 import { MasterBus } from "@/components/MasterBus";
+import { ProducerPanel } from "@/components/ProducerPanel";
+import { SessionSettings } from "@/components/SessionSettings";
 import { TimelineRuler } from "@/components/TimelineRuler";
 import { TrackLane } from "@/components/TrackLane";
 import { TransportBar } from "@/components/TransportBar";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { exportSongAsMp3, exportSongAsWav } from "@/lib/audio/export";
-import { playSingleTrack, playSyncedTracks } from "@/lib/audio/playback";
+import { startMetronome } from "@/lib/audio/metronome";
+import {
+  getPlaybackDuration,
+  playSingleTrack,
+  playSyncedTracks,
+} from "@/lib/audio/playback";
 import { produceSongWithSummary, revokeProducedUrls } from "@/lib/audio/produce";
+import {
+  createDefaultProduceSettings,
+  createDefaultSessionMix,
+  type SessionMixSettings,
+  type SessionProduceSettings,
+  type TrackMixSettings,
+} from "@/lib/mix";
+import { getProducerSuggestions } from "@/lib/producer-advice";
 import { createEmptyTracks, TRACK_DEFINITIONS } from "@/lib/tracks";
 import type { HarmonyAnalysis, InstrumentId, TrackRecording, TrackType } from "@/lib/types";
 
@@ -19,15 +34,25 @@ export function StudioWorkspace() {
   const [activeTrack, setActiveTrack] = useState<TrackType>("melody");
   const [masterBpm, setMasterBpm] = useState<number | null>(null);
   const [harmony, setHarmony] = useState<HarmonyAnalysis | null>(null);
+  const [sessionMix, setSessionMix] = useState<SessionMixSettings>(() => createDefaultSessionMix());
+  const [produceSettings, setProduceSettings] = useState<SessionProduceSettings>(() =>
+    createDefaultProduceSettings(),
+  );
   const [isPlaying, setIsPlaying] = useState(false);
+  const [playheadSec, setPlayheadSec] = useState<number | null>(null);
   const [isProducing, setIsProducing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [produceError, setProduceError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
-  const [autotuneEnabled, setAutotuneEnabled] = useState(true);
   const { isRecording, error, startRecording, stopRecording } = useAudioRecorder();
   const stopPlaybackRef = useRef<(() => void) | null>(null);
-  const singlePlaybackRef = useRef<HTMLAudioElement | null>(null);
+  const stopMetronomeRef = useRef<(() => void) | null>(null);
+  const playheadFrameRef = useRef<number | null>(null);
+  const playbackHandleRef = useRef<{
+    stop: () => void;
+    context: AudioContext;
+    masterStart: number;
+  } | null>(null);
 
   const activeDefinition = useMemo(
     () => TRACK_DEFINITIONS.find((track) => track.type === activeTrack)!,
@@ -37,6 +62,10 @@ export function StudioWorkspace() {
   const recordedCount = tracks.filter((track) => track.audioUrl).length;
   const isProduced = tracks.some((track) => track.status === "ready");
   const tracksRef = useRef(tracks);
+  const producerSuggestions = useMemo(
+    () => getProducerSuggestions(tracks, isProduced),
+    [tracks, isProduced],
+  );
 
   const timelineDuration = useMemo(() => {
     const durations = tracks
@@ -45,6 +74,9 @@ export function StudioWorkspace() {
     return Math.max(16, ...durations, 0);
   }, [tracks]);
 
+  const displayBpm = produceSettings.manualBpm ?? masterBpm;
+  const displayKey = produceSettings.manualKey ?? harmony?.detectedKey ?? null;
+
   useEffect(() => {
     tracksRef.current = tracks;
   }, [tracks]);
@@ -52,7 +84,10 @@ export function StudioWorkspace() {
   useEffect(() => {
     return () => {
       stopPlaybackRef.current?.();
-      singlePlaybackRef.current?.pause();
+      stopMetronomeRef.current?.();
+      if (playheadFrameRef.current !== null) {
+        cancelAnimationFrame(playheadFrameRef.current);
+      }
       tracksRef.current.forEach((track) => {
         if (track.audioUrl) URL.revokeObjectURL(track.audioUrl);
       });
@@ -60,13 +95,40 @@ export function StudioWorkspace() {
     };
   }, []);
 
+  const stopPlayheadAnimation = useCallback(() => {
+    if (playheadFrameRef.current !== null) {
+      cancelAnimationFrame(playheadFrameRef.current);
+      playheadFrameRef.current = null;
+    }
+    setPlayheadSec(null);
+  }, []);
+
+  const startPlayheadAnimation = useCallback(
+    (handle: { context: AudioContext; masterStart: number }, durationSec: number) => {
+      stopPlayheadAnimation();
+
+      const tick = () => {
+        const elapsed = handle.context.currentTime - handle.masterStart;
+        if (elapsed >= durationSec) {
+          stopPlayheadAnimation();
+          return;
+        }
+        setPlayheadSec(Math.max(0, elapsed));
+        playheadFrameRef.current = requestAnimationFrame(tick);
+      };
+
+      playheadFrameRef.current = requestAnimationFrame(tick);
+    },
+    [stopPlayheadAnimation],
+  );
+
   const stopAllPlayback = useCallback(() => {
     stopPlaybackRef.current?.();
     stopPlaybackRef.current = null;
-    singlePlaybackRef.current?.pause();
-    singlePlaybackRef.current = null;
+    playbackHandleRef.current = null;
+    stopPlayheadAnimation();
     setIsPlaying(false);
-  }, []);
+  }, [stopPlayheadAnimation]);
 
   const resetProductionState = useCallback(() => {
     setMasterBpm(null);
@@ -82,12 +144,32 @@ export function StudioWorkspace() {
     [],
   );
 
+  const updateTrackMix = useCallback((type: TrackType, updates: Partial<TrackMixSettings>) => {
+    setSessionMix((current) => ({
+      ...current,
+      tracks: {
+        ...current.tracks,
+        [type]: { ...current.tracks[type], ...updates },
+      },
+    }));
+  }, []);
+
   const handleStartRecording = useCallback(async () => {
     stopAllPlayback();
+    stopMetronomeRef.current?.();
+
+    if (produceSettings.metronomeEnabled) {
+      const bpm = produceSettings.manualBpm ?? masterBpm ?? 120;
+      stopMetronomeRef.current = startMetronome(bpm);
+    }
+
     await startRecording();
-  }, [startRecording, stopAllPlayback]);
+  }, [masterBpm, produceSettings.manualBpm, produceSettings.metronomeEnabled, startRecording, stopAllPlayback]);
 
   const handleStopRecording = useCallback(async () => {
+    stopMetronomeRef.current?.();
+    stopMetronomeRef.current = null;
+
     const result = await stopRecording();
     if (!result) return;
 
@@ -110,10 +192,18 @@ export function StudioWorkspace() {
 
       stopAllPlayback();
       const mode = track.status === "ready" ? "produced" : "raw";
-      singlePlaybackRef.current = await playSingleTrack(track, mode);
+      const handle = await playSingleTrack(track, mode, sessionMix);
+      if (!handle) return;
+
+      playbackHandleRef.current = handle;
+      stopPlaybackRef.current = () => {
+        handle.stop();
+        stopPlayheadAnimation();
+      };
       setIsPlaying(true);
+      startPlayheadAnimation(handle, track.duration ?? timelineDuration);
     },
-    [tracks, stopAllPlayback],
+    [sessionMix, startPlayheadAnimation, stopAllPlayback, stopPlayheadAnimation, timelineDuration, tracks],
   );
 
   const handleClearTrack = useCallback(
@@ -159,10 +249,28 @@ export function StudioWorkspace() {
   const handleTransportPlay = useCallback(async () => {
     if (recordedCount === 0) return;
     stopAllPlayback();
+
     const mode = isProduced ? "produced" : "raw";
-    stopPlaybackRef.current = await playSyncedTracks(tracks, mode);
+    const handle = await playSyncedTracks(tracks, mode, sessionMix);
+    playbackHandleRef.current = handle;
+    stopPlaybackRef.current = () => {
+      handle.stop();
+      stopPlayheadAnimation();
+    };
     setIsPlaying(true);
-  }, [isProduced, recordedCount, stopAllPlayback, tracks]);
+
+    const duration = getPlaybackDuration(tracks, mode, sessionMix);
+    startPlayheadAnimation(handle, duration || timelineDuration);
+  }, [
+    isProduced,
+    recordedCount,
+    sessionMix,
+    startPlayheadAnimation,
+    stopAllPlayback,
+    stopPlayheadAnimation,
+    timelineDuration,
+    tracks,
+  ]);
 
   const handleAutofitAndProduce = useCallback(async () => {
     if (recordedCount === 0 || isProducing) return;
@@ -181,7 +289,10 @@ export function StudioWorkspace() {
     try {
       revokeProducedUrls(tracksRef.current);
       const { result, warnings } = await produceSongWithSummary(tracksRef.current, {
-        autotuneEnabled,
+        autotuneEnabled: produceSettings.autotuneEnabled,
+        manualBpm: produceSettings.manualBpm,
+        manualKey: produceSettings.manualKey,
+        swing: produceSettings.swing,
       });
       setTracks(result.tracks);
       setMasterBpm(result.masterBpm);
@@ -208,7 +319,7 @@ export function StudioWorkspace() {
     } finally {
       setIsProducing(false);
     }
-  }, [autotuneEnabled, isProducing, recordedCount, stopAllPlayback]);
+  }, [isProducing, produceSettings, recordedCount, stopAllPlayback]);
 
   const handleExport = useCallback(
     async (format: "wav" | "mp3") => {
@@ -220,9 +331,9 @@ export function StudioWorkspace() {
 
       try {
         if (format === "wav") {
-          await exportSongAsWav(tracksRef.current);
+          await exportSongAsWav(tracksRef.current, sessionMix);
         } else {
-          await exportSongAsMp3(tracksRef.current);
+          await exportSongAsMp3(tracksRef.current, sessionMix);
         }
       } catch {
         setExportError("Export failed. Produce your song first, then try again.");
@@ -230,7 +341,7 @@ export function StudioWorkspace() {
         setIsExporting(false);
       }
     },
-    [isExporting, isProduced, stopAllPlayback],
+    [isExporting, isProduced, sessionMix, stopAllPlayback],
   );
 
   return (
@@ -245,15 +356,15 @@ export function StudioWorkspace() {
           </Link>
           <div>
             <h1 className="text-sm font-semibold text-white">Untitled Session</h1>
-            <p className="text-[11px] text-zinc-500">Voice-first producer · 4 track lanes</p>
+            <p className="text-[11px] text-zinc-500">Voice-first producer · mixer · beat grid</p>
           </div>
         </div>
         <div className="flex items-center gap-2 text-[11px] font-mono text-zinc-500">
           <span className="rounded border border-white/10 px-2 py-1">
-            {harmony?.detectedKey ?? "Key —"}
+            {displayKey ?? "Key —"}
           </span>
           <span className="rounded border border-white/10 px-2 py-1">
-            {masterBpm ? `${masterBpm} BPM` : "BPM —"}
+            {displayBpm ? `${Math.round(displayBpm)} BPM` : "BPM —"}
           </span>
         </div>
       </header>
@@ -263,7 +374,7 @@ export function StudioWorkspace() {
         isPlaying={isPlaying}
         isProducing={isProducing}
         isExporting={isExporting}
-        masterBpm={masterBpm}
+        masterBpm={displayBpm}
         armedTrackLabel={activeDefinition.label}
         canPlay={recordedCount > 0}
         canRecord={!isProducing && !isExporting}
@@ -279,6 +390,32 @@ export function StudioWorkspace() {
         </div>
       )}
 
+      <ProducerPanel suggestions={producerSuggestions} />
+
+      <div className="border-b border-white/10 bg-[#101018] px-4 py-3">
+        <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+          Session Settings
+        </p>
+        <SessionSettings
+          settings={produceSettings}
+          detectedBpm={masterBpm}
+          detectedKey={harmony?.detectedKey ?? null}
+          disabled={isProducing || isExporting}
+          onChange={(settings) => {
+            const affectsProduction =
+              settings.manualBpm !== produceSettings.manualBpm ||
+              settings.manualKey !== produceSettings.manualKey ||
+              settings.swing !== produceSettings.swing ||
+              settings.autotuneEnabled !== produceSettings.autotuneEnabled;
+
+            setProduceSettings(settings);
+            if (affectsProduction) {
+              resetProductionState();
+            }
+          }}
+        />
+      </div>
+
       {harmony && masterBpm && <ChordSuggestions harmony={harmony} masterBpm={masterBpm} />}
 
       <div className="flex-1 overflow-auto daw-scrollbar">
@@ -286,7 +423,11 @@ export function StudioWorkspace() {
           <div className="flex items-center border-r border-white/10 bg-[#101018] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
             Tracks
           </div>
-          <TimelineRuler bpm={masterBpm ?? 120} durationSec={timelineDuration} />
+          <TimelineRuler
+            bpm={displayBpm ?? 120}
+            durationSec={timelineDuration}
+            playheadSec={playheadSec}
+          />
         </div>
 
         {TRACK_DEFINITIONS.map((definition) => {
@@ -297,21 +438,25 @@ export function StudioWorkspace() {
               key={definition.type}
               definition={definition}
               recording={recording}
+              mix={sessionMix.tracks[definition.type]}
               isArmed={activeTrack === definition.type}
               isRecording={isRecording && activeTrack === definition.type}
+              playheadSec={playheadSec}
+              timelineDuration={timelineDuration}
               onArm={() => setActiveTrack(definition.type)}
               onPlay={() => handlePlayTrack(definition.type)}
               onClear={() => handleClearTrack(definition.type)}
               onInstrumentChange={(instrument) =>
                 handleInstrumentChange(definition.type, instrument)
               }
+              onMixChange={updateTrackMix}
             />
           );
         })}
       </div>
 
       <MasterBus
-        autotuneEnabled={autotuneEnabled}
+        masterVolume={sessionMix.masterVolume}
         recordedCount={recordedCount}
         totalTracks={tracks.length}
         isProduced={isProduced}
@@ -319,10 +464,9 @@ export function StudioWorkspace() {
         isExporting={isExporting}
         produceError={produceError}
         exportError={exportError}
-        onAutotuneChange={(enabled) => {
-          setAutotuneEnabled(enabled);
-          resetProductionState();
-        }}
+        onMasterVolumeChange={(masterVolume) =>
+          setSessionMix((current) => ({ ...current, masterVolume }))
+        }
         onProduce={handleAutofitAndProduce}
         onExportWav={() => handleExport("wav")}
         onExportMp3={() => handleExport("mp3")}

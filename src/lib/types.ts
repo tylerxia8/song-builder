@@ -56,6 +56,28 @@ export interface TrackRecording {
 
 export interface ProduceOptions {
   autotuneEnabled?: boolean;
+  manualBpm?: number | null;
+  manualKey?: string | null;
+  swing?: number;
+}
+
+export interface PlaybackMixOptions {
+  masterVolume: number;
+  tracks: Record<
+    TrackType,
+    {
+      volume: number;
+      pan: number;
+      muted: boolean;
+      solo: boolean;
+    }
+  >;
+}
+
+export interface PlaybackHandle {
+  stop: () => void;
+  context: AudioContext;
+  masterStart: number;
 }
 
 export interface ProductionResult {

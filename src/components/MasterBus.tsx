@@ -1,7 +1,7 @@
 "use client";
 
 interface MasterBusProps {
-  autotuneEnabled: boolean;
+  masterVolume: number;
   recordedCount: number;
   totalTracks: number;
   isProduced: boolean;
@@ -9,14 +9,14 @@ interface MasterBusProps {
   isExporting: boolean;
   produceError: string | null;
   exportError: string | null;
-  onAutotuneChange: (enabled: boolean) => void;
+  onMasterVolumeChange: (volume: number) => void;
   onProduce: () => void;
   onExportWav: () => void;
   onExportMp3: () => void;
 }
 
 export function MasterBus({
-  autotuneEnabled,
+  masterVolume,
   recordedCount,
   totalTracks,
   isProduced,
@@ -24,7 +24,7 @@ export function MasterBus({
   isExporting,
   produceError,
   exportError,
-  onAutotuneChange,
+  onMasterVolumeChange,
   onProduce,
   onExportWav,
   onExportMp3,
@@ -33,27 +33,33 @@ export function MasterBus({
 
   return (
     <div className="border-t border-white/10 bg-[#12121a]">
-      <div className="flex items-center gap-2 border-b border-white/10 px-4 py-2">
+      <div className="flex flex-wrap items-center gap-2 border-b border-white/10 px-4 py-2">
         <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-500">
           Master Bus
         </span>
         <span className="text-[11px] text-zinc-600">
-          {recordedCount}/{totalTracks} tracks · AI mixdown & export
+          {recordedCount}/{totalTracks} tracks · mixer · mixdown · export
         </span>
       </div>
 
-      <div className="grid gap-4 p-4 lg:grid-cols-[1fr_auto] lg:items-center">
-        <div className="space-y-2">
-          <label className="inline-flex items-center gap-2 text-sm text-zinc-300">
+      <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+        <div className="space-y-3">
+          <label className="flex max-w-xs flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">
+              Master volume {Math.round(masterVolume * 100)}%
+            </span>
             <input
-              type="checkbox"
-              checked={autotuneEnabled}
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={masterVolume}
               disabled={disabled}
-              onChange={(event) => onAutotuneChange(event.target.checked)}
-              className="h-4 w-4 rounded border-white/20 bg-transparent accent-violet-500"
+              onChange={(event) => onMasterVolumeChange(Number(event.target.value))}
+              className="accent-violet-500"
             />
-            Autotune to key
           </label>
+
           {(produceError || exportError) && (
             <p
               className={`text-sm ${
