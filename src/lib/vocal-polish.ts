@@ -193,7 +193,7 @@ export async function detectVocalKey(blob: Blob): Promise<SongKey | null> {
   const median = detectMedianPitch(buffer);
   if (!median) return null;
 
-  const keys: SongKey[] = ["C", "G", "D", "A", "E", "F", "Am", "Em", "Dm", "Bm"];
+  const keys: SongKey[] = ["C", "G", "D", "A", "E", "F", "Am", "Em", "Dm", "Bm", "Cm"];
   let best: SongKey = "Am";
   let bestError = Infinity;
 

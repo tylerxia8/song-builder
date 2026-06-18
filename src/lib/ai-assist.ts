@@ -31,6 +31,12 @@ export function detectKeyFromProject(project: Project): SongKey {
 }
 
 const LYRIC_TEMPLATES: Record<string, string[]> = {
+  kanye: [
+    "Through the wire I still hear heaven in the noise",
+    "Touch the sky — every scar turned into voice",
+    "Flashing lights but the sample feels like home",
+    "Chop it flip it make a throne from a soulful tone",
+  ],
   pop: [
     "We don't need the lights to feel alive tonight",
     "Every little moment turns to gold in time",
@@ -68,6 +74,7 @@ export function suggestHookMelody(key: SongKey): number[] {
     Em: [64, 66, 67, 69, 67, 66, 64, 62],
     Dm: [62, 64, 65, 67, 65, 64, 62, 60],
     Bm: [71, 73, 74, 76, 74, 73, 71, 69],
+    Cm: [72, 73, 75, 77, 75, 73, 72, 70],
   };
 
   return (roots[key] ?? roots.Am).map((pitch) => snapMidiToKey(pitch, key));

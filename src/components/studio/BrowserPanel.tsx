@@ -5,6 +5,7 @@ import { useStudio } from "@/store/project-store";
 import type { TrackKind } from "@/types/project";
 import { AiAssistPanel, ImportPanel } from "./AssistPanels";
 import { RecordPanel } from "./RecordPanel";
+import { SampleChopperPanel } from "./SampleChopperPanel";
 
 const instruments = [
   { id: "grand-piano", label: "Grand Piano" },
@@ -15,7 +16,7 @@ const instruments = [
 ] as const;
 
 export function BrowserPanel() {
-  const { addTrack, loadStarterTemplate, setTrackInstrument, selectedTrack, setViewMode } =
+  const { addTrack, loadStarterTemplate, loadKanyeTemplate, setTrackInstrument, selectedTrack, setViewMode } =
     useStudio();
 
   return (
@@ -25,6 +26,24 @@ export function BrowserPanel() {
       </div>
 
       <div className="space-y-4 overflow-auto p-3 daw-scrollbar">
+        <section>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+            Producer Packs
+          </p>
+          <button
+            type="button"
+            onClick={() => void loadKanyeTemplate()}
+            className="mb-2 w-full rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-left text-xs font-medium text-amber-100 transition hover:border-amber-400/50 hover:bg-amber-500/15"
+          >
+            Kanye Soul Chop
+            <span className="mt-0.5 block text-[10px] font-normal text-zinc-400">
+              84 BPM · boom bap · sample chop workflow
+            </span>
+          </button>
+        </section>
+
+        <SampleChopperPanel />
+
         <section>
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
             Starter Template

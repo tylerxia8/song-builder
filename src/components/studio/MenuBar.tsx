@@ -16,6 +16,7 @@ export function MenuBar() {
     canRedo,
     undo,
     redo,
+    loadKanyeTemplate,
     loadStarterTemplate,
     newProject,
     setViewMode,
@@ -105,6 +106,16 @@ export function MenuBar() {
                   }}
                 >
                   Make a Song wizard
+                </button>
+                <button
+                  type="button"
+                  className="block w-full px-3 py-2 text-left hover:bg-white/5"
+                  onClick={() => {
+                    void loadKanyeTemplate();
+                    setOpenMenu(null);
+                  }}
+                >
+                  Load Kanye Soul Chop
                 </button>
                 <button
                   type="button"

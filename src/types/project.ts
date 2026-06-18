@@ -24,7 +24,7 @@ export interface DrumPattern {
 
 export type ClipKind = "midi" | "drums" | "audio";
 
-export type SongKey = "C" | "G" | "D" | "A" | "E" | "F" | "Am" | "Em" | "Dm" | "Bm";
+export type SongKey = "C" | "G" | "D" | "A" | "E" | "F" | "Am" | "Em" | "Dm" | "Bm" | "Cm";
 
 export interface VocalPolishSettings {
   amount: number;
@@ -45,6 +45,8 @@ export interface Clip {
   audioOffsetBeat?: number;
   sourceDurationBeat?: number;
   vocalPolish?: VocalPolishSettings;
+  pitchSemitones?: number;
+  reversed?: boolean;
   color?: string;
 }
 

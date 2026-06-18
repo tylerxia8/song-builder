@@ -1,16 +1,21 @@
 import { createStarterTemplate } from "@/lib/starter-template";
 import { createId, type Project } from "@/types/project";
 
-export type SongVibe = "pop" | "trap" | "acoustic";
+export type SongVibe = "kanye" | "pop" | "trap" | "acoustic";
 
 export const SONG_VIBES: Array<{ id: SongVibe; label: string; description: string; bpm: number }> =
   [
+    { id: "kanye", label: "Kanye Soul", description: "Sample chop, boom bap, 84 BPM", bpm: 84 },
     { id: "pop", label: "Minimal Pop", description: "Sparse drums, Am–F–C–G", bpm: 120 },
     { id: "trap", label: "Trap", description: "808-style bed, dark chords", bpm: 140 },
     { id: "acoustic", label: "Acoustic", description: "Soft kit, warm chords", bpm: 96 },
   ];
 
 export function createTemplateForVibe(vibe: SongVibe): Project {
+  if (vibe === "kanye") {
+    throw new Error("Use createKanyeTemplate() for async Kanye template load.");
+  }
+
   const base = createStarterTemplate();
 
   if (vibe === "pop") {
@@ -66,7 +71,8 @@ export function createTemplateForVibe(vibe: SongVibe): Project {
 export const WIZARD_STEPS = [
   { id: "vibe", title: "Pick a vibe", detail: "Choose a genre bed to start from." },
   { id: "listen", title: "Listen", detail: "Press play and feel the loop." },
-  { id: "record", title: "Record your hook", detail: "Sing or hum over the loop." },
+  { id: "chop", title: "Chop the sample", detail: "Slice, flip, and place soul chops on the grid." },
+  { id: "record", title: "Record your hook", detail: "Rap or sing your hook over the beat." },
   { id: "polish", title: "Polish vocal", detail: "Tune and balance your take." },
   { id: "balance", title: "Balance mix", detail: "Set vocal vs beat levels." },
   { id: "export", title: "Master & export", detail: "Download your finished song." },

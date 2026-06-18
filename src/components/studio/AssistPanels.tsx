@@ -50,7 +50,9 @@ export function ImportPanel() {
 
 export function AiAssistPanel() {
   const { project } = useStudio();
-  const vibe: SongVibe = project.name.toLowerCase().includes("trap")
+  const vibe: SongVibe | "kanye" = project.name.toLowerCase().includes("kanye")
+    ? "kanye"
+    : project.name.toLowerCase().includes("trap")
     ? "trap"
     : project.name.toLowerCase().includes("acoustic")
       ? "acoustic"

@@ -18,6 +18,12 @@ import { createDemoProject, createEmptyProject } from "@/lib/demo-project";
 import { importAudioFile } from "@/lib/file-import";
 import { createStarterTemplate } from "@/lib/starter-template";
 import { createTemplateForVibe, type SongVibe, type WizardStepId } from "@/lib/song-templates";
+import { createKanyeTemplate } from "@/lib/kanye-template";
+import {
+  bufferToWavBlob,
+  processChopSlice,
+  type SampleSlice,
+} from "@/lib/sample-chopper";
 import { DEFAULT_VOCAL_POLISH, polishVocalBlob } from "@/lib/vocal-polish";
 import { createInitialHistory, pushHistory, redoHistory, resolveInitialProject, undoHistory, type ProjectHistory } from "@/lib/project-history";
 import { loadProjectFromStorage, saveProjectToStorage } from "@/lib/project-storage";
@@ -316,7 +322,8 @@ interface StudioContextValue {
   canRedo: boolean;
   newProject: () => void;
   loadStarterTemplate: () => void;
-  loadTemplateForVibe: (vibe: SongVibe) => void;
+  loadKanyeTemplate: () => Promise<void>;
+  loadTemplateForVibe: (vibe: SongVibe) => Promise<void>;
   openProject: (projectId: string) => Promise<void>;
   saveProject: () => Promise<void>;
   viewMode: StudioViewMode;
@@ -328,6 +335,13 @@ interface StudioContextValue {
   importAudioClip: (file: File, startBeat: number) => Promise<void>;
   exportPreset: (preset: ExportPreset) => Promise<void>;
   exportStems: () => Promise<void>;
+  placeChopOnTimeline: (params: {
+    buffer: AudioBuffer;
+    slice: SampleSlice;
+    pitchSemitones?: number;
+    reversed?: boolean;
+    startBeat?: number;
+  }) => Promise<void>;
   isHydrated: boolean;
   isSaving: boolean;
   lastSavedAt: number | null;
@@ -860,7 +874,37 @@ export function StudioProvider({
           dispatch({ type: "SELECT_CLIP", clipId: null, editorMode: "audio" });
         }
       },
-      loadTemplateForVibe: (vibe) => {
+      loadKanyeTemplate: async () => {
+        engineStop();
+        const project = await createKanyeTemplate();
+        dispatch({ type: "LOAD_PROJECT", project });
+        const sampleTrack = project.tracks.find((track) => track.name === "Sample");
+        if (sampleTrack) {
+          dispatch({ type: "SELECT_TRACK", trackId: sampleTrack.id });
+          dispatch({
+            type: "SELECT_CLIP",
+            clipId: sampleTrack.clips[0]?.id ?? null,
+            editorMode: "audio",
+          });
+        }
+      },
+      loadTemplateForVibe: async (vibe) => {
+        if (vibe === "kanye") {
+          const project = await createKanyeTemplate();
+          engineStop();
+          dispatch({ type: "LOAD_PROJECT", project });
+          const sampleTrack = project.tracks.find((track) => track.name === "Sample");
+          if (sampleTrack) {
+            dispatch({ type: "SELECT_TRACK", trackId: sampleTrack.id });
+            dispatch({
+              type: "SELECT_CLIP",
+              clipId: sampleTrack.clips[0]?.id ?? null,
+              editorMode: "audio",
+            });
+          }
+          return;
+        }
+
         engineStop();
         const project = createTemplateForVibe(vibe);
         dispatch({ type: "LOAD_PROJECT", project });
@@ -869,6 +913,45 @@ export function StudioProvider({
           dispatch({ type: "SELECT_TRACK", trackId: vocalTrack.id });
           dispatch({ type: "SELECT_CLIP", clipId: null, editorMode: "audio" });
         }
+      },
+      placeChopOnTimeline: async ({
+        buffer,
+        slice,
+        pitchSemitones = 0,
+        reversed = false,
+        startBeat = state.transport.currentBeat,
+      }) => {
+        const processed = await processChopSlice(buffer, slice, { pitchSemitones, reversed });
+        const blob = bufferToWavBlob(processed);
+        const assetId = createId("audio");
+        const audioUrl = registerAudioAsset(assetId, blob);
+        const durationBeat = secondsToBeats(processed.duration, state.project.bpm);
+
+        const sampleTrack =
+          state.project.tracks.find((track) => track.name === "Sample") ??
+          state.project.tracks.find((track) => track.kind === "audio" && !track.armed) ??
+          state.project.tracks.find((track) => track.kind === "audio");
+
+        if (!sampleTrack) return;
+
+        const clip: Clip = {
+          id: createId("clip"),
+          trackId: sampleTrack.id,
+          name: `Chop ${slice.index + 1}${reversed ? " · flip" : ""}${pitchSemitones ? ` · ${pitchSemitones > 0 ? "+" : ""}${pitchSemitones}st` : ""}`,
+          kind: "audio",
+          startBeat: snapBeat(Math.max(0, startBeat)),
+          durationBeat,
+          sourceDurationBeat: durationBeat,
+          audioOffsetBeat: 0,
+          audioAssetId: assetId,
+          audioUrl,
+        };
+
+        dispatch({
+          type: "UPDATE_PROJECT",
+          updater: (project) => insertClipsOnTrack(project, sampleTrack.id, [clip]),
+        });
+        dispatch({ type: "SELECT_CLIP", clipId: clip.id, editorMode: "audio" });
       },
       viewMode,
       wizardStep,

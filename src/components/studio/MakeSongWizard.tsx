@@ -7,11 +7,13 @@ import {
   suggestHookMelody,
   suggestLyrics,
 } from "@/lib/ai-assist";
+import { KANYE_WORKFLOW } from "@/lib/kanye-template";
 import { SONG_VIBES, WIZARD_STEPS, type SongVibe, type WizardStepId } from "@/lib/song-templates";
 import { DEFAULT_VOCAL_POLISH } from "@/lib/vocal-polish";
 import { useStudio } from "@/store/project-store";
 import type { ExportPreset } from "@/engine/export";
 import { RecordPanel } from "./RecordPanel";
+import { SampleChopperPanel } from "./SampleChopperPanel";
 
 export function MakeSongWizard() {
   const {
@@ -30,7 +32,7 @@ export function MakeSongWizard() {
     setViewMode,
   } = useStudio();
 
-  const [vibe, setVibe] = useState<SongVibe>("pop");
+  const [vibe, setVibe] = useState<SongVibe>("kanye");
   const [polishAmount, setPolishAmount] = useState(DEFAULT_VOCAL_POLISH.amount);
   const [mixBalance, setMixBalanceLocal] = useState(0.55);
   const [busy, setBusy] = useState<string | null>(null);
@@ -47,15 +49,21 @@ export function MakeSongWizard() {
   const lyricIdeas = useMemo(() => suggestLyrics(vibe, detectedKey), [vibe, detectedKey]);
   const hookMelody = useMemo(() => suggestHookMelody(detectedKey), [detectedKey]);
 
-  const stepIndex = WIZARD_STEPS.findIndex((step) => step.id === wizardStep);
+  const activeSteps = useMemo(
+    () => (vibe === "kanye" ? WIZARD_STEPS : WIZARD_STEPS.filter((step) => step.id !== "chop")),
+    [vibe],
+  );
+
+  const stepIndex = activeSteps.findIndex((step) => step.id === wizardStep);
+  const currentStep = activeSteps[stepIndex] ?? activeSteps[0];
 
   const goNext = () => {
-    const next = WIZARD_STEPS[Math.min(WIZARD_STEPS.length - 1, stepIndex + 1)];
+    const next = activeSteps[Math.min(activeSteps.length - 1, stepIndex + 1)];
     if (next) setWizardStep(next.id);
   };
 
   const goBack = () => {
-    const prev = WIZARD_STEPS[Math.max(0, stepIndex - 1)];
+    const prev = activeSteps[Math.max(0, stepIndex - 1)];
     if (prev) setWizardStep(prev.id);
   };
 
@@ -66,8 +74,8 @@ export function MakeSongWizard() {
           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-violet-300">
             Make a Song
           </p>
-          <h1 className="text-lg font-semibold">{WIZARD_STEPS[stepIndex]?.title}</h1>
-          <p className="text-xs text-zinc-400">{WIZARD_STEPS[stepIndex]?.detail}</p>
+          <h1 className="text-lg font-semibold">{currentStep?.title}</h1>
+          <p className="text-xs text-zinc-400">{currentStep?.detail}</p>
         </div>
         <button
           type="button"
@@ -81,7 +89,7 @@ export function MakeSongWizard() {
       <div className="flex min-h-0 flex-1">
         <aside className="w-56 shrink-0 border-r border-white/10 bg-[#101018] p-4">
           <ol className="space-y-3">
-            {WIZARD_STEPS.map((step, index) => (
+            {activeSteps.map((step, index) => (
               <li
                 key={step.id}
                 className={`rounded-md px-3 py-2 text-xs ${
@@ -128,6 +136,13 @@ export function MakeSongWizard() {
                     <li key={line}>“{line}”</li>
                   ))}
                 </ul>
+                {vibe === "kanye" ? (
+                  <ul className="mt-2 space-y-1 text-xs text-zinc-500">
+                    {KANYE_WORKFLOW.map((tip) => (
+                      <li key={tip}>• {tip}</li>
+                    ))}
+                  </ul>
+                ) : null}
               </div>
             </div>
           )}
@@ -154,6 +169,12 @@ export function MakeSongWizard() {
                   Stop
                 </button>
               </div>
+            </div>
+          )}
+
+          {wizardStep === "chop" && (
+            <div className="mx-auto max-w-lg">
+              <SampleChopperPanel />
             </div>
           )}
 
@@ -275,12 +296,12 @@ export function MakeSongWizard() {
         <button
           type="button"
           onClick={() => {
-            if (wizardStep === "vibe") loadTemplateForVibe(vibe);
+            if (wizardStep === "vibe") void loadTemplateForVibe(vibe);
             goNext();
           }}
           className="rounded-md bg-violet-600 px-4 py-2 text-xs font-semibold hover:bg-violet-500"
         >
-          {stepIndex === WIZARD_STEPS.length - 1 ? "Done" : "Continue"}
+          {stepIndex === activeSteps.length - 1 ? "Done" : "Continue"}
         </button>
       </footer>
     </div>

@@ -1,6 +1,6 @@
 import type { SongKey } from "@/types/project";
 
-export const SONG_KEYS: SongKey[] = ["C", "G", "D", "A", "E", "F", "Am", "Em", "Dm", "Bm"];
+export const SONG_KEYS: SongKey[] = ["C", "G", "D", "A", "E", "F", "Am", "Em", "Dm", "Bm", "Cm"];
 
 const MAJOR_SCALES: Record<string, number[]> = {
   C: [0, 2, 4, 5, 7, 9, 11],
@@ -13,6 +13,7 @@ const MAJOR_SCALES: Record<string, number[]> = {
   Em: [4, 6, 7, 9, 11, 0, 2],
   Dm: [2, 4, 5, 7, 9, 10, 0],
   Bm: [11, 1, 2, 4, 6, 7, 9],
+  Cm: [0, 2, 3, 5, 7, 8, 10],
 };
 
 export function scaleMidiNotes(key: SongKey, octave = 4): number[] {

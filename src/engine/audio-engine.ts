@@ -290,6 +290,10 @@ export class AudioEngine {
   private scheduleClip(project: Project, track: Track, clip: Clip, nodes: TrackNodes) {
     if (clip.kind === "audio" && clip.audioUrl) {
       const player = new Tone.Player(clip.audioUrl).connect(nodes.channel);
+      if (clip.reversed) player.reverse = true;
+      if (clip.pitchSemitones) {
+        player.playbackRate = 2 ** (clip.pitchSemitones / 12);
+      }
       const offsetSec = beatToSeconds(getClipAudioOffsetBeat(clip), project.bpm);
       player.sync().start(beatToTransportTime(clip.startBeat), offsetSec);
       player.sync().stop(beatToTransportTime(clip.startBeat + clip.durationBeat));
@@ -397,6 +401,8 @@ export class AudioEngine {
             const buffer = audioBuffers.get(clip.id);
             if (!buffer) return;
             const player = new Tone.Player(buffer).connect(channel);
+            if (clip.reversed) player.reverse = true;
+            if (clip.pitchSemitones) player.playbackRate = 2 ** (clip.pitchSemitones / 12);
             const startSec = beatToSeconds(clip.startBeat, project.bpm);
             const offsetSec = beatToSeconds(getClipAudioOffsetBeat(clip), project.bpm);
             const endSec = startSec + beatToSeconds(clip.durationBeat, project.bpm);
