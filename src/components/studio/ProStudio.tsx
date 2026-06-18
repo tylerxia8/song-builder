@@ -2,29 +2,23 @@
 
 import { useCallback, useEffect, useMemo } from "react";
 import { AudioEngine } from "@/engine/audio-engine";
-import { StudioProvider, useStudio, useStudioHydrationGate, useStudioTransportSync } from "@/store/project-store";
-import { MakeSongWizard } from "./MakeSongWizard";
+import { StudioProvider, useStudioHydrationGate, useStudioTransportSync } from "@/store/project-store";
 import { ArrangementView } from "./ArrangementView";
 import { BottomEditor } from "./BottomEditor";
-import { BrowserPanel } from "./BrowserPanel";
 import { MenuBar } from "./MenuBar";
 import { MixerPanel } from "./MixerPanel";
+import { ProducerPanel } from "./ProducerPanel";
 import { TransportPanel } from "./TransportPanel";
 
 function StudioInner() {
   useStudioTransportSync();
-  const { viewMode } = useStudio();
-
-  if (viewMode === "guided") {
-    return useStudioHydrationGate(<MakeSongWizard />);
-  }
 
   return useStudioHydrationGate(
     <div className="flex h-screen flex-col overflow-hidden bg-[#0b0b10] text-white">
       <MenuBar />
       <TransportPanel />
       <div className="flex min-h-0 flex-1">
-        <BrowserPanel />
+        <ProducerPanel />
         <div className="flex min-w-0 flex-1 flex-col">
           <ArrangementView />
           <BottomEditor />

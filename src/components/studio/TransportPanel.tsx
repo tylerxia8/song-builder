@@ -7,10 +7,10 @@ export function TransportPanel() {
   const {
     project,
     state,
-    armedTrack,
+    selectedClip,
     play,
     stop,
-    startRecording,
+    recordVocal,
     stopRecording,
     toggleLoop,
     toggleMetronome,
@@ -18,9 +18,11 @@ export function TransportPanel() {
     exportPreset,
     exportStems,
     setMixBalance,
+    polishSelectedVocal,
   } = useStudio();
 
   const isRecording = state.transport.isRecording;
+  const canPolish = selectedClip?.kind === "audio";
 
   return (
     <div className="flex flex-wrap items-center gap-3 border-b border-white/10 bg-[#12121a] px-4 py-2.5">
@@ -40,32 +42,26 @@ export function TransportPanel() {
         >
           ■ {isRecording ? "Save take" : "Stop"}
         </button>
-        {!isRecording ? (
-          <button
-            type="button"
-            onClick={() => void startRecording()}
-            title={
-              armedTrack
-                ? `Record onto ${armedTrack.name}`
-                : "Arm a track for recording first"
-            }
-            className={`rounded-md border px-3 py-2 text-xs font-semibold transition ${
-              armedTrack
-                ? "border-red-400/40 bg-red-600 text-white hover:bg-red-500"
-                : "border-white/10 bg-[#1a1a24] text-zinc-400"
-            }`}
-          >
-            ● Record
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => void stopRecording()}
-            className="rounded-md border border-red-400/50 bg-red-500/20 px-3 py-2 text-xs font-semibold text-red-100 shadow-[0_0_16px_rgba(239,68,68,0.25)]"
-          >
-            ● Recording…
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => void recordVocal()}
+          className={`rounded-md border px-3 py-2 text-xs font-semibold transition ${
+            isRecording
+              ? "border-red-400/50 bg-red-500/20 text-red-100 shadow-[0_0_16px_rgba(239,68,68,0.25)]"
+              : "border-red-400/40 bg-red-600 text-white hover:bg-red-500"
+          }`}
+        >
+          {isRecording ? "● Recording…" : "● Record vocal"}
+        </button>
+        <button
+          type="button"
+          disabled={isRecording || !canPolish}
+          onClick={() => void polishSelectedVocal()}
+          title={canPolish ? "Tune and polish selected vocal" : "Select a vocal clip first"}
+          className="rounded-md border border-violet-400/30 bg-violet-500/10 px-3 py-2 text-xs font-semibold text-violet-200 transition hover:bg-violet-500/20 disabled:opacity-40"
+        >
+          Polish vocal
+        </button>
         <button
           type="button"
           disabled={isRecording}

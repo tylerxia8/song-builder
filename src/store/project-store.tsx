@@ -17,7 +17,7 @@ import { registerAudioAsset, revokeProjectAudioUrls, collectProjectAssetIds, get
 import { createDemoProject, createEmptyProject } from "@/lib/demo-project";
 import { importAudioFile } from "@/lib/file-import";
 import { createStarterTemplate } from "@/lib/starter-template";
-import { createTemplateForVibe, type SongVibe, type WizardStepId } from "@/lib/song-templates";
+import { createTemplateForVibe, type SongVibe } from "@/lib/song-templates";
 import { createKanyeTemplate } from "@/lib/kanye-template";
 import {
   bufferToWavBlob,
@@ -54,7 +54,6 @@ import {
   type MidiNote,
   type Project,
   type StudioSelection,
-  type StudioViewMode,
   type Track,
   type TrackKind,
   type VocalPolishSettings,
@@ -312,6 +311,7 @@ interface StudioContextValue {
   splitSelectedClip: (absoluteBeat: number) => void;
   deleteSelectedClip: () => void;
   setupRecordingTrack: (name?: string) => void;
+  recordVocal: () => Promise<void>;
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<void>;
   exportWav: () => Promise<void>;
@@ -326,10 +326,6 @@ interface StudioContextValue {
   loadTemplateForVibe: (vibe: SongVibe) => Promise<void>;
   openProject: (projectId: string) => Promise<void>;
   saveProject: () => Promise<void>;
-  viewMode: StudioViewMode;
-  wizardStep: WizardStepId;
-  setViewMode: (mode: StudioViewMode) => void;
-  setWizardStep: (step: WizardStepId) => void;
   polishSelectedVocal: (amount?: number) => Promise<void>;
   setMixBalance: (vocalWeight: number) => void;
   importAudioClip: (file: File, startBeat: number) => Promise<void>;
@@ -370,8 +366,6 @@ export function StudioProvider({
   const [isHydrated, setIsHydrated] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
-  const [viewMode, setViewMode] = useState<StudioViewMode>("guided");
-  const [wizardStep, setWizardStep] = useState<WizardStepId>("vibe");
 
   useEffect(() => {
     resolveInitialProject()
@@ -527,6 +521,53 @@ export function StudioProvider({
       dispatch({ type: "SET_RECORDING", value: false });
     }
   }, [state.project.bpm, state.project.tracks, state.transport.currentBeat, state.transport.isRecording]);
+
+  const recordVocal = useCallback(async () => {
+    if (state.transport.isRecording) {
+      await stopRecording();
+      return;
+    }
+
+    dispatch({ type: "SET_RECORD_ERROR", value: null });
+    engineStop();
+    dispatch({ type: "SET_PLAYING", value: false });
+
+    const hasArmed = state.project.tracks.some((track) => track.armed);
+    if (!hasArmed) {
+      const existingAudio = state.project.tracks.find((track) => track.kind === "audio");
+      if (existingAudio) {
+        dispatch({
+          type: "UPDATE_PROJECT",
+          updater: (project) => ({
+            ...project,
+            tracks: project.tracks.map((track) => ({
+              ...track,
+              armed: track.id === existingAudio.id,
+            })),
+          }),
+        });
+        dispatch({ type: "SELECT_TRACK", trackId: existingAudio.id });
+      } else {
+        const newTrack = createTrackForKind(state.project, "audio", "Vocal");
+        dispatch({
+          type: "UPDATE_PROJECT",
+          updater: (project) => ({
+            ...project,
+            tracks: [...project.tracks.map((track) => ({ ...track, armed: false })), { ...newTrack, armed: true }],
+          }),
+        });
+        dispatch({ type: "SELECT_TRACK", trackId: newTrack.id });
+      }
+      dispatch({ type: "SELECT_CLIP", clipId: null, editorMode: "audio" });
+    }
+
+    try {
+      await startMicCapture();
+      dispatch({ type: "SET_RECORDING", value: true });
+    } catch (error) {
+      dispatch({ type: "SET_RECORD_ERROR", value: micPermissionMessage(error) });
+    }
+  }, [engineStop, state.project, state.transport.isRecording, stopRecording]);
 
   const value = useMemo<StudioContextValue>(
     () => ({
@@ -761,6 +802,7 @@ export function StudioProvider({
         dispatch({ type: "SELECT_CLIP", clipId: null });
       },
       setupRecordingTrack,
+      recordVocal,
       startRecording,
       stopRecording,
       exportWav: async () => {
@@ -953,10 +995,6 @@ export function StudioProvider({
         });
         dispatch({ type: "SELECT_CLIP", clipId: clip.id, editorMode: "audio" });
       },
-      viewMode,
-      wizardStep,
-      setViewMode,
-      setWizardStep,
       openProject: async (projectId) => {
         const project = await loadProjectFromStorage(projectId);
         if (!project) return;
@@ -985,10 +1023,9 @@ export function StudioProvider({
       isHydrated,
       isSaving,
       lastSavedAt,
-      viewMode,
-      wizardStep,
       play,
       setupRecordingTrack,
+      recordVocal,
       startRecording,
       stopRecording,
       selectedClip,
