@@ -207,7 +207,7 @@ export function SampleChopperPanel() {
             startBeat: state.transport.currentBeat,
           });
         }}
-        className="mt-3 w-full rounded-md bg-amber-600 px-3 py-2.5 text-xs font-semibold text-white hover:bg-amber-500 disabled:opacity-40"
+        className="mt-3 w-full rounded-md bg-[var(--sf-accent)] px-3 py-2.5 text-xs font-semibold text-white hover:brightness-110 disabled:opacity-40"
       >
         Place chop {selectedSlice + 1}
       </button>

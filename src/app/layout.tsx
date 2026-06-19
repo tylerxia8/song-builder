@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SongBuilder Pro | Professional Music Producer",
+  title: "SongBuilder | Make music in your browser",
   description:
-    "Arrange, edit, mix, and export music in a professional browser-based producer with drums, piano roll, mixer, and timeline.",
+    "Online studio for loops, instruments, recording, arrangement, and export — inspired by the Soundation workflow.",
 };
 
 export default function RootLayout({
@@ -28,7 +28,7 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full bg-[#0b0b10] font-sans text-white">{children}</body>
+      <body className="min-h-full bg-[var(--sf-bg)] font-sans text-[var(--sf-text)]">{children}</body>
     </html>
   );
 }

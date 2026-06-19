@@ -1,8 +1,19 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0b0b10;
-  --foreground: #f4f4f5;
+  --sf-bg: #12141a;
+  --sf-panel: #181b22;
+  --sf-panel-2: #1f232d;
+  --sf-panel-3: #262b36;
+  --sf-border: #2e3340;
+  --sf-accent: #0099ff;
+  --sf-accent-soft: rgba(0, 153, 255, 0.15);
+  --sf-text: #eef0f3;
+  --sf-text-muted: #8b919e;
+  --sf-success: #22c55e;
+  --sf-danger: #ef4444;
+  --background: var(--sf-bg);
+  --foreground: var(--sf-text);
 }
 
 @theme inline {
@@ -19,24 +30,44 @@ body {
 }
 
 .daw-scrollbar::-webkit-scrollbar {
-  height: 10px;
-  width: 10px;
+  height: 8px;
+  width: 8px;
 }
 
 .daw-scrollbar::-webkit-scrollbar-track {
-  background: #0f0f15;
+  background: var(--sf-panel);
 }
 
 .daw-scrollbar::-webkit-scrollbar-thumb {
-  background: #2a2a36;
+  background: var(--sf-panel-3);
   border-radius: 999px;
 }
 
 .daw-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #3a3a48;
+  background: #3a4150;
 }
 
 button,
 a {
   cursor: pointer;
+}
+
+.sf-panel {
+  background: var(--sf-panel);
+  border-color: var(--sf-border);
+}
+
+.sf-accent-btn {
+  background: var(--sf-accent);
+  color: white;
+}
+
+.sf-accent-btn:hover {
+  background: #33adff;
+}
+
+.sf-fader {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  accent-color: var(--sf-accent);
 }

@@ -1,31 +1,47 @@
 "use client";
 
 import { useCallback, useEffect, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import { AudioEngine } from "@/engine/audio-engine";
-import { StudioProvider, useStudioHydrationGate, useStudioTransportSync } from "@/store/project-store";
+import { StudioProvider, useStudio, useStudioHydrationGate, useStudioTransportSync } from "@/store/project-store";
 import { ArrangementView } from "./ArrangementView";
 import { BottomEditor } from "./BottomEditor";
-import { MenuBar } from "./MenuBar";
-import { MixerPanel } from "./MixerPanel";
-import { ProducerPanel } from "./ProducerPanel";
-import { TransportPanel } from "./TransportPanel";
+import { LibraryPanel } from "./LibraryPanel";
+import { StudioHeader } from "./StudioHeader";
+import { StudioTransport } from "./StudioTransport";
+
+function StudioBoot() {
+  const searchParams = useSearchParams();
+  const { isHydrated, newProject } = useStudio();
+
+  useEffect(() => {
+    if (!isHydrated) return;
+    if (searchParams.get("new") === "1") {
+      newProject();
+    }
+  }, [isHydrated, newProject, searchParams]);
+
+  return null;
+}
 
 function StudioInner() {
   useStudioTransportSync();
 
   return useStudioHydrationGate(
-    <div className="flex h-screen flex-col overflow-hidden bg-[#0b0b10] text-white">
-      <MenuBar />
-      <TransportPanel />
-      <div className="flex min-h-0 flex-1">
-        <ProducerPanel />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <ArrangementView />
-          <BottomEditor />
+    <>
+      <StudioBoot />
+      <div className="flex h-screen flex-col overflow-hidden bg-[var(--sf-bg)] text-[var(--sf-text)]">
+        <StudioHeader />
+        <StudioTransport />
+        <div className="flex min-h-0 flex-1">
+          <LibraryPanel />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <ArrangementView />
+            <BottomEditor />
+          </div>
         </div>
-        <MixerPanel />
       </div>
-    </div>,
+    </>,
   );
 }
 

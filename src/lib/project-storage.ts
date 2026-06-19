@@ -231,6 +231,16 @@ export async function deleteProjectFromStorage(projectId: string): Promise<void>
   }
 }
 
+export function clearActiveProject(): void {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(ACTIVE_PROJECT_KEY);
+}
+
+export function setActiveProjectId(projectId: string): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(ACTIVE_PROJECT_KEY, projectId);
+}
+
 export async function loadActiveProject(): Promise<Project | null> {
   const activeId = localStorage.getItem(ACTIVE_PROJECT_KEY);
   if (!activeId) return null;

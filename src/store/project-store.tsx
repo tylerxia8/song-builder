@@ -292,7 +292,7 @@ interface StudioContextValue {
   selectTrack: (trackId: string) => void;
   selectClip: (clipId: string) => void;
   setEditorMode: (mode: EditorMode) => void;
-  addTrack: (kind: TrackKind) => void;
+  addTrack: (kind: TrackKind, options?: { instrument?: InstrumentProgram; name?: string }) => void;
   removeTrack: (trackId: string) => void;
   armTrack: (trackId: string) => void;
   updateTrackMix: (
@@ -604,13 +604,19 @@ export function StudioProvider({
       selectTrack: (trackId) => dispatch({ type: "SELECT_TRACK", trackId }),
       selectClip: (clipId) => dispatch({ type: "SELECT_CLIP", clipId }),
       setEditorMode: (mode) => dispatch({ type: "SET_EDITOR_MODE", mode }),
-      addTrack: (kind) =>
+      addTrack: (kind, options) =>
         dispatch({
           type: "UPDATE_PROJECT",
-          updater: (project) => ({
-            ...project,
-            tracks: [...project.tracks, createTrackForKind(project, kind)],
-          }),
+          updater: (project) => {
+            const track = createTrackForKind(project, kind, options?.name);
+            return {
+              ...project,
+              tracks: [
+                ...project.tracks,
+                options?.instrument ? { ...track, instrument: options.instrument } : track,
+              ],
+            };
+          },
         }),
       removeTrack: (trackId) =>
         dispatch({
