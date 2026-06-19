@@ -7,6 +7,7 @@ import {
   LOOP_PACKS,
   type LibraryTab,
 } from "@/lib/sound-library";
+import { previewDrumPattern, previewInstrument, previewLoopPack } from "@/lib/audio-preview";
 import { useStudio } from "@/store/project-store";
 import type { TrackKind } from "@/types/project";
 import { SampleChopperPanel } from "./SampleChopperPanel";
@@ -124,18 +125,32 @@ export function LibraryPanel() {
               Loop packs load a full session bed at the playhead.
             </p>
             {filteredLoops.map((pack) => (
-              <button
+              <div
                 key={pack.id}
-                type="button"
-                onClick={() => void loadTemplateForVibe(pack.vibe)}
-                className="w-full rounded-lg border border-[var(--sf-border)] bg-[var(--sf-panel-2)] p-3 text-left transition hover:border-[var(--sf-accent)]/40"
+                className="rounded-lg border border-[var(--sf-border)] bg-[var(--sf-panel-2)] p-3"
               >
                 <div className="mb-2 h-10 rounded-md" style={{ background: `${pack.color}33` }} />
                 <p className="text-sm font-semibold">{pack.name}</p>
                 <p className="mt-0.5 text-[11px] text-[var(--sf-text-muted)]">
                   {pack.genre} · {pack.bpm} BPM
                 </p>
-              </button>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void previewLoopPack(pack.genre)}
+                    className="rounded-md border border-[var(--sf-border)] px-2 py-1 text-[10px] text-[var(--sf-text-muted)] hover:text-white"
+                  >
+                    ▶ Preview
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void loadTemplateForVibe(pack.vibe)}
+                    className="rounded-md bg-[var(--sf-accent)] px-2 py-1 text-[10px] font-semibold text-white"
+                  >
+                    Load pack
+                  </button>
+                </div>
+              </div>
             ))}
             <SampleChopperPanel />
           </div>
@@ -144,17 +159,31 @@ export function LibraryPanel() {
         {tab === "instruments" ? (
           <div className="space-y-2">
             {filteredInstruments.map((preset) => (
-              <button
+              <div
                 key={preset.id}
-                type="button"
-                onClick={() => addTrack("instrument", { instrument: preset.id, name: preset.name })}
-                className="w-full rounded-lg border border-[var(--sf-border)] bg-[var(--sf-panel-2)] px-3 py-2.5 text-left hover:border-[var(--sf-accent)]/40"
+                className="rounded-lg border border-[var(--sf-border)] bg-[var(--sf-panel-2)] px-3 py-2.5"
               >
                 <p className="text-sm font-semibold">{preset.name}</p>
                 <p className="text-[11px] text-[var(--sf-text-muted)]">
                   {preset.category} · {preset.description}
                 </p>
-              </button>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void previewInstrument(preset.preview)}
+                    className="rounded-md border border-[var(--sf-border)] px-2 py-1 text-[10px] text-[var(--sf-text-muted)] hover:text-white"
+                  >
+                    ▶ Preview
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => addTrack("instrument", { instrument: preset.id, name: preset.name })}
+                    className="rounded-md bg-[var(--sf-accent)] px-2 py-1 text-[10px] font-semibold text-white"
+                  >
+                    Add channel
+                  </button>
+                </div>
+              </div>
             ))}
           </div>
         ) : null}
@@ -162,17 +191,31 @@ export function LibraryPanel() {
         {tab === "drums" ? (
           <div className="space-y-2">
             {filteredDrums.map((preset) => (
-              <button
+              <div
                 key={preset.id}
-                type="button"
-                onClick={() => void loadTemplateForVibe(preset.vibe)}
-                className="w-full rounded-lg border border-[var(--sf-border)] bg-[var(--sf-panel-2)] px-3 py-2.5 text-left hover:border-[var(--sf-accent)]/40"
+                className="rounded-lg border border-[var(--sf-border)] bg-[var(--sf-panel-2)] px-3 py-2.5"
               >
                 <p className="text-sm font-semibold">{preset.name}</p>
                 <p className="text-[11px] text-[var(--sf-text-muted)]">
                   {preset.genre} · {preset.description}
                 </p>
-              </button>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void previewDrumPattern(preset.preview)}
+                    className="rounded-md border border-[var(--sf-border)] px-2 py-1 text-[10px] text-[var(--sf-text-muted)] hover:text-white"
+                  >
+                    ▶ Preview
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void loadTemplateForVibe(preset.vibe)}
+                    className="rounded-md bg-[var(--sf-accent)] px-2 py-1 text-[10px] font-semibold text-white"
+                  >
+                    Load kit
+                  </button>
+                </div>
+              </div>
             ))}
           </div>
         ) : null}

@@ -19,8 +19,11 @@ export function ArrangementView() {
     selectTrack,
     selectClip,
     addTrack,
+    addMidiClip,
+    addDrumClip,
     setZoom,
-    setCurrentBeat,
+    seekToBeat,
+    setLoopRegion,
     moveClip,
     resizeClip,
     setMasterVolume,
@@ -45,7 +48,20 @@ export function ArrangementView() {
     const rect = event.currentTarget.getBoundingClientRect();
     const x = event.clientX - rect.left + scrollLeft;
     const beat = snapBeat(pixelsToBeats(x, barWidthPx));
-    setCurrentBeat(Math.max(0, beat));
+    seekToBeat(Math.max(0, beat));
+  };
+
+  const handleLaneDoubleClick = (
+    event: React.MouseEvent<HTMLDivElement>,
+    track: (typeof project.tracks)[number],
+  ) => {
+    if ((event.target as HTMLElement).closest("[data-clip-block]")) return;
+    const scrollLeft = scrollRef.current?.scrollLeft ?? 0;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - rect.left + scrollLeft;
+    const beat = snapBeat(pixelsToBeats(x, barWidthPx));
+    if (track.kind === "drums") addDrumClip(track.id, Math.max(0, beat));
+    else if (track.kind === "instrument") addMidiClip(track.id, Math.max(0, beat));
   };
 
   return (
@@ -60,6 +76,30 @@ export function ArrangementView() {
         >
           + Add channel
         </button>
+        <label className="hidden items-center gap-2 text-[11px] text-[var(--sf-text-muted)] md:flex">
+          Loop bars
+          <input
+            type="number"
+            min={1}
+            max={project.lengthBars}
+            value={project.loopStartBar + 1}
+            onChange={(event) =>
+              setLoopRegion(Number(event.target.value) - 1, project.loopEndBar)
+            }
+            className="w-12 rounded border border-[var(--sf-border)] bg-[var(--sf-panel-2)] px-1 py-0.5 text-xs text-white"
+          />
+          –
+          <input
+            type="number"
+            min={2}
+            max={project.lengthBars + 1}
+            value={project.loopEndBar}
+            onChange={(event) =>
+              setLoopRegion(project.loopStartBar, Number(event.target.value))
+            }
+            className="w-12 rounded border border-[var(--sf-border)] bg-[var(--sf-panel-2)] px-1 py-0.5 text-xs text-white"
+          />
+        </label>
         <label className="flex shrink-0 items-center gap-2 text-[11px] text-[var(--sf-text-muted)]">
           Zoom
           <input
@@ -151,6 +191,7 @@ export function ArrangementView() {
             {project.tracks.map((track, trackIndex) => (
               <div
                 key={track.id}
+                onDoubleClick={(event) => handleLaneDoubleClick(event, track)}
                 className={`relative h-[72px] border-b border-[var(--sf-border)] ${
                   track.armed ? "bg-red-500/[0.05]" : "bg-[var(--sf-panel)]/20"
                 }`}

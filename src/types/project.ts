@@ -1,5 +1,7 @@
 export type TrackKind = "instrument" | "drums" | "audio";
 
+import type { TrackFxSettings } from "@/lib/track-fx";
+
 export type InstrumentProgram =
   | "grand-piano"
   | "electric-piano"
@@ -61,6 +63,7 @@ export interface Track {
   muted: boolean;
   solo: boolean;
   armed: boolean;
+  fx?: TrackFxSettings;
   clips: Clip[];
 }
 

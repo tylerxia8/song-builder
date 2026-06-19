@@ -17,6 +17,7 @@ import { registerAudioAsset, revokeProjectAudioUrls, collectProjectAssetIds, get
 import { createDemoProject, createEmptyProject } from "@/lib/demo-project";
 import { importAudioFile } from "@/lib/file-import";
 import { createStarterTemplate } from "@/lib/starter-template";
+import { resolveTrackFx, DEFAULT_TRACK_FX, type TrackFxSettings } from "@/lib/track-fx";
 import { createTemplateForVibe, type SongVibe } from "@/lib/song-templates";
 import { createKanyeTemplate } from "@/lib/kanye-template";
 import {
@@ -269,6 +270,7 @@ function createTrackForKind(project: Project, kind: TrackKind, name?: string): T
     muted: false,
     solo: false,
     armed: false,
+    fx: DEFAULT_TRACK_FX,
     clips: [],
   };
 }
@@ -288,6 +290,9 @@ interface StudioContextValue {
   setBpm: (bpm: number) => void;
   setMasterVolume: (value: number) => void;
   setCurrentBeat: (value: number) => void;
+  seekToBeat: (value: number) => void;
+  setLoopRegion: (startBar: number, endBar: number) => void;
+  previewNote: (pitch: number, velocity?: number) => Promise<void>;
   setZoom: (value: number) => void;
   selectTrack: (trackId: string) => void;
   selectClip: (clipId: string) => void;
@@ -299,6 +304,7 @@ interface StudioContextValue {
     trackId: string,
     patch: Partial<Pick<Track, "volume" | "pan" | "muted" | "solo">>,
   ) => void;
+  updateTrackFx: (trackId: string, patch: Partial<TrackFxSettings>) => void;
   setTrackInstrument: (trackId: string, instrument: InstrumentProgram) => void;
   addMidiClip: (trackId: string, startBeat: number) => void;
   addDrumClip: (trackId: string, startBeat: number) => void;
@@ -353,6 +359,8 @@ export function StudioProvider({
   engineSetMasterVolume,
   engineSetPositionListener,
   engineExport,
+  enginePreviewNote,
+  engineSeek,
 }: {
   children: ReactNode;
   enginePlay: (project: Project, fromBeat: number) => Promise<void>;
@@ -361,6 +369,8 @@ export function StudioProvider({
   engineSetMasterVolume: (value: number) => void;
   engineSetPositionListener: (listener: ((beat: number) => void) | null) => void;
   engineExport: (project: Project, masterVolume: number, soloTrackId?: string | null) => Promise<AudioBuffer>;
+  enginePreviewNote: (track: Track, pitch: number, velocity?: number) => Promise<void>;
+  engineSeek: (beat: number) => void;
 }) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   const [isHydrated, setIsHydrated] = useState(false);
@@ -600,6 +610,30 @@ export function StudioProvider({
         engineSetMasterVolume(value);
       },
       setCurrentBeat: (value) => dispatch({ type: "SET_CURRENT_BEAT", value }),
+      seekToBeat: (value) => {
+        const beat = Math.max(0, value);
+        dispatch({ type: "SET_CURRENT_BEAT", value: beat });
+        if (!state.transport.isPlaying) engineSeek(beat);
+      },
+      setLoopRegion: (startBar, endBar) =>
+        dispatch({
+          type: "UPDATE_PROJECT",
+          updater: (project) => ({
+            ...project,
+            loopStartBar: Math.max(0, Math.min(startBar, endBar - 1)),
+            loopEndBar: Math.max(startBar + 1, endBar),
+            loopEnabled: true,
+          }),
+        }),
+      previewNote: async (pitch, velocity = 0.8) => {
+        const track =
+          selectedTrack ??
+          state.project.tracks.find((item) => item.kind === "instrument") ??
+          state.project.tracks.find((item) => item.kind === "drums");
+        if (!track || track.kind === "audio") return;
+        engineSync(state.project, state.masterVolume);
+        await enginePreviewNote(track, pitch, velocity);
+      },
       setZoom: (value) => dispatch({ type: "SET_ZOOM", value }),
       selectTrack: (trackId) => dispatch({ type: "SELECT_TRACK", trackId }),
       selectClip: (clipId) => dispatch({ type: "SELECT_CLIP", clipId }),
@@ -652,14 +686,35 @@ export function StudioProvider({
       setTrackInstrument: (trackId, instrument) =>
         dispatch({
           type: "UPDATE_PROJECT",
-          updater: (project) => updateTrack(project, trackId, (track) => ({ ...track, instrument })),
+          updater: (project) => {
+            const next = updateTrack(project, trackId, (track) => ({ ...track, instrument }));
+            engineSync(next, state.masterVolume);
+            return next;
+          },
         }),
-      addMidiClip: (trackId, startBeat) =>
+      updateTrackFx: (trackId, patch) =>
+        dispatch({
+          type: "UPDATE_PROJECT",
+          updater: (project) => {
+            const next = updateTrack(project, trackId, (track) => ({
+              ...track,
+              fx: {
+                reverb: { ...resolveTrackFx(track.fx).reverb, ...patch.reverb },
+                delay: { ...resolveTrackFx(track.fx).delay, ...patch.delay },
+                filter: { ...resolveTrackFx(track.fx).filter, ...patch.filter },
+              },
+            }));
+            engineSync(next, state.masterVolume);
+            return next;
+          },
+        }),
+      addMidiClip: (trackId, startBeat) => {
+        const clipId = createId("clip");
         dispatch({
           type: "UPDATE_PROJECT",
           updater: (project) => {
             const clip: Clip = {
-              id: createId("clip"),
+              id: clipId,
               trackId,
               name: "MIDI Clip",
               kind: "midi",
@@ -672,13 +727,17 @@ export function StudioProvider({
               clips: [...track.clips, clip],
             }));
           },
-        }),
-      addDrumClip: (trackId, startBeat) =>
+        });
+        dispatch({ type: "SELECT_TRACK", trackId });
+        dispatch({ type: "SELECT_CLIP", clipId, editorMode: "piano-roll" });
+      },
+      addDrumClip: (trackId, startBeat) => {
+        const clipId = createId("clip");
         dispatch({
           type: "UPDATE_PROJECT",
           updater: (project) => {
             const clip: Clip = {
-              id: createId("clip"),
+              id: clipId,
               trackId,
               name: "Drum Pattern",
               kind: "drums",
@@ -691,7 +750,10 @@ export function StudioProvider({
               clips: [...track.clips, clip],
             }));
           },
-        }),
+        });
+        dispatch({ type: "SELECT_TRACK", trackId });
+        dispatch({ type: "SELECT_CLIP", clipId, editorMode: "drum-machine" });
+      },
       toggleDrumStep: (clipId, row, step) =>
         dispatch({
           type: "UPDATE_PROJECT",

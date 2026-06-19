@@ -1,6 +1,7 @@
 "use client";
 
 import type { Track } from "@/types/project";
+import { INSTRUMENT_PRESETS } from "@/lib/sound-library";
 import { useStudio } from "@/store/project-store";
 
 interface TrackChannelStripProps {
@@ -10,7 +11,8 @@ interface TrackChannelStripProps {
 }
 
 export function TrackChannelStrip({ track, selected, onSelect }: TrackChannelStripProps) {
-  const { updateTrackMix, armTrack } = useStudio();
+  const { updateTrackMix, armTrack, addMidiClip, addDrumClip, setTrackInstrument, state } =
+    useStudio();
 
   return (
     <div
@@ -37,7 +39,6 @@ export function TrackChannelStrip({ track, selected, onSelect }: TrackChannelStr
                 ? "bg-[var(--sf-accent)] text-white"
                 : "bg-[var(--sf-panel-3)] text-[var(--sf-text-muted)] hover:text-white"
             }`}
-            title="Solo"
           >
             S
           </button>
@@ -49,7 +50,6 @@ export function TrackChannelStrip({ track, selected, onSelect }: TrackChannelStr
                 ? "bg-amber-500/80 text-white"
                 : "bg-[var(--sf-panel-3)] text-[var(--sf-text-muted)] hover:text-white"
             }`}
-            title="Mute"
           >
             M
           </button>
@@ -63,7 +63,6 @@ export function TrackChannelStrip({ track, selected, onSelect }: TrackChannelStr
           value={track.volume}
           onChange={(event) => updateTrackMix(track.id, { volume: Number(event.target.value) })}
           className="sf-fader h-10 w-4 shrink-0"
-          title={`Volume ${Math.round(track.volume * 100)}%`}
         />
 
         <input
@@ -74,23 +73,48 @@ export function TrackChannelStrip({ track, selected, onSelect }: TrackChannelStr
           value={track.pan}
           onChange={(event) => updateTrackMix(track.id, { pan: Number(event.target.value) })}
           className="h-1 w-10 shrink-0 accent-[var(--sf-accent)]"
-          title="Pan"
         />
+
+        {track.kind === "instrument" ? (
+          <select
+            value={track.instrument}
+            onChange={(event) =>
+              setTrackInstrument(track.id, event.target.value as Track["instrument"])
+            }
+            className="ml-auto max-w-[72px] rounded border border-[var(--sf-border)] bg-[var(--sf-panel-2)] px-1 py-0.5 text-[9px] text-white"
+          >
+            {INSTRUMENT_PRESETS.map((preset) => (
+              <option key={preset.id} value={preset.id}>
+                {preset.name}
+              </option>
+            ))}
+          </select>
+        ) : null}
 
         {track.kind === "audio" ? (
           <button
             type="button"
             onClick={() => armTrack(track.id)}
             className={`ml-auto rounded px-1.5 py-0.5 text-[9px] font-bold ${
-              track.armed
-                ? "bg-[var(--sf-danger)] text-white"
-                : "bg-[var(--sf-panel-3)] text-[var(--sf-text-muted)]"
+              track.armed ? "bg-[var(--sf-danger)] text-white" : "bg-[var(--sf-panel-3)] text-[var(--sf-text-muted)]"
             }`}
-            title="Arm for recording"
           >
             R
           </button>
-        ) : null}
+        ) : (
+          <button
+            type="button"
+            onClick={() =>
+              track.kind === "drums"
+                ? addDrumClip(track.id, state.transport.currentBeat)
+                : addMidiClip(track.id, state.transport.currentBeat)
+            }
+            className="ml-auto rounded bg-[var(--sf-panel-3)] px-1.5 py-0.5 text-[9px] font-bold text-[var(--sf-text-muted)] hover:text-white"
+            title="Add clip at playhead"
+          >
+            +
+          </button>
+        )}
       </div>
     </div>
   );

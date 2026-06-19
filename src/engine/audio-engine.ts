@@ -4,6 +4,14 @@ import { beatToSeconds, getClipAudioOffsetBeat } from "@/lib/audio-clip";
 import { getTrackOutputVolume, isTrackAudible } from "@/lib/mix";
 import { connectTrackToMaster, createMasterChain } from "@/engine/master-chain";
 import {
+  applyTrackFxSettings,
+  connectInstrumentToFxChain,
+  createTrackFxChain,
+  disposeTrackFxChain,
+  type TrackFxNodes,
+} from "@/engine/track-fx-chain";
+import { resolveTrackFx } from "@/lib/track-fx";
+import {
   BEATS_PER_BAR,
   beatToTransportTime,
   createEmptyDrumPattern,
@@ -28,6 +36,8 @@ interface DrumInstrument extends Tone.ToneAudioNode {
 interface TrackNodes {
   channel: Tone.Channel;
   instrument: Tone.ToneAudioNode;
+  fx: TrackFxNodes;
+  program: InstrumentProgram | "drums";
   parts: Tone.Part[];
   players: Tone.Player[];
 }
@@ -186,24 +196,31 @@ export class AudioEngine {
   }
 
   private getOrCreateTrackNodes(track: Track): TrackNodes {
+    const program: InstrumentProgram | "drums" =
+      track.kind === "drums" ? "drums" : track.instrument;
     const existing = this.trackNodes.get(track.id);
-    if (existing) return existing;
+    if (existing && existing.program === program) {
+      applyTrackFxSettings(existing.fx, resolveTrackFx(track.fx));
+      return existing;
+    }
+    if (existing) this.disposeTrackNodes(track.id);
 
     const channel = new Tone.Channel({
       volume: Tone.gainToDb(track.volume),
       pan: track.pan,
     }).connect(this.reverb);
 
+    const fx = createTrackFxChain();
     const instrument =
-      track.kind === "drums"
-        ? createDrumSynth()
-        : createInstrument(track.instrument);
-
-    instrument.connect(channel);
+      track.kind === "drums" ? createDrumSynth() : createInstrument(track.instrument);
+    connectInstrumentToFxChain(instrument, fx, channel);
+    applyTrackFxSettings(fx, resolveTrackFx(track.fx));
 
     const nodes: TrackNodes = {
       channel,
       instrument,
+      fx,
+      program,
       parts: [],
       players: [],
     };
@@ -217,6 +234,7 @@ export class AudioEngine {
     nodes.parts.forEach((part) => part.dispose());
     nodes.players.forEach((player) => player.dispose());
     nodes.instrument.dispose();
+    disposeTrackFxChain(nodes.fx);
     nodes.channel.dispose();
     this.trackNodes.delete(trackId);
   }
@@ -233,6 +251,7 @@ export class AudioEngine {
       nodes.channel.volume.rampTo(Tone.gainToDb(outputVolume), 0.03);
       nodes.channel.pan.rampTo(track.pan, 0.03);
       nodes.channel.mute = !isTrackAudible(track, project.tracks);
+      applyTrackFxSettings(nodes.fx, resolveTrackFx(track.fx));
     });
 
     Tone.Transport.bpm.value = project.bpm;
@@ -359,6 +378,28 @@ export class AudioEngine {
     return transportTimeToBeat(Tone.Transport.position as string);
   }
 
+  seekTo(beat: number) {
+    Tone.Transport.position = beatToTransportTime(Math.max(0, beat));
+    this.onPositionChange?.(Math.max(0, beat));
+  }
+
+  async previewNote(track: Track, pitch: number, velocity = 0.8, durationSec = 0.4) {
+    await this.ensureStarted();
+    const nodes = this.getOrCreateTrackNodes(track);
+    const when = Tone.now();
+    if (track.kind === "drums") {
+      const note = Tone.Frequency(pitch, "midi").toNote();
+      (nodes.instrument as DrumInstrument).triggerAttackRelease(note, "16n", when, velocity);
+      return;
+    }
+    (nodes.instrument as Tone.PolySynth).triggerAttackRelease(
+      Tone.Frequency(pitch, "midi").toNote(),
+      durationSec,
+      when,
+      velocity,
+    );
+  }
+
   async renderOffline(
     project: Project,
     durationBars: number,
@@ -415,7 +456,9 @@ export class AudioEngine {
 
         const instrument =
           track.kind === "drums" ? createDrumSynth() : createInstrument(track.instrument);
-        instrument.connect(channel);
+        const fx = createTrackFxChain();
+        applyTrackFxSettings(fx, resolveTrackFx(track.fx));
+        connectInstrumentToFxChain(instrument, fx, channel);
 
         track.clips.forEach((clip) => {
           if (clip.kind === "drums" && clip.pattern) {

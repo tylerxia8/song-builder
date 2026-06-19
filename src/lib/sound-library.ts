@@ -17,6 +17,7 @@ export interface InstrumentPreset {
   name: string;
   category: string;
   description: string;
+  preview: "keys" | "bass" | "lead" | "pad";
 }
 
 export interface DrumPreset {
@@ -25,6 +26,7 @@ export interface DrumPreset {
   genre: string;
   description: string;
   vibe: SongVibe;
+  preview: "hiphop" | "pop" | "trap" | "acoustic";
 }
 
 export const LOOP_PACKS: LoopPack[] = [
@@ -68,30 +70,35 @@ export const INSTRUMENT_PRESETS: InstrumentPreset[] = [
     name: "Grand Piano",
     category: "Keys",
     description: "Classic piano for chords and melodies",
+    preview: "keys",
   },
   {
     id: "electric-piano",
     name: "Electric Piano",
     category: "Keys",
     description: "Warm Rhodes-style keys",
+    preview: "keys",
   },
   {
     id: "analog-bass",
     name: "Analog Bass",
     category: "Bass",
     description: "Deep sub bass for low end",
+    preview: "bass",
   },
   {
     id: "lead-synth",
     name: "Lead Synth",
     category: "Synth",
     description: "Bright lead lines and hooks",
+    preview: "lead",
   },
   {
     id: "pad",
     name: "Warm Pad",
     category: "Synth",
     description: "Atmospheric background layers",
+    preview: "pad",
   },
 ];
 
@@ -102,6 +109,7 @@ export const DRUM_PRESETS: DrumPreset[] = [
     genre: "Hip Hop",
     description: "Swingy kick and snare pocket",
     vibe: "kanye",
+    preview: "hiphop",
   },
   {
     id: "pop-sparse",
@@ -109,6 +117,7 @@ export const DRUM_PRESETS: DrumPreset[] = [
     genre: "Pop",
     description: "Light kick, snare, and hats",
     vibe: "pop",
+    preview: "pop",
   },
   {
     id: "trap-808",
@@ -116,6 +125,7 @@ export const DRUM_PRESETS: DrumPreset[] = [
     genre: "Trap",
     description: "Hard kicks and rolling hats",
     vibe: "trap",
+    preview: "trap",
   },
   {
     id: "acoustic-kit",
@@ -123,5 +133,6 @@ export const DRUM_PRESETS: DrumPreset[] = [
     genre: "Acoustic",
     description: "Soft, organic drum feel",
     vibe: "acoustic",
+    preview: "acoustic",
   },
 ];

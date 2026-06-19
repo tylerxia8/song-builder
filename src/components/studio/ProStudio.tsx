@@ -98,6 +98,20 @@ export function ProStudio() {
     [engine],
   );
 
+  const enginePreviewNote = useCallback(
+    async (track: Parameters<typeof engine.previewNote>[0], pitch: number, velocity?: number) => {
+      await engine.previewNote(track, pitch, velocity);
+    },
+    [engine],
+  );
+
+  const engineSeek = useCallback(
+    (beat: number) => {
+      engine.seekTo(beat);
+    },
+    [engine],
+  );
+
   useEffect(() => {
     return () => {
       engine.stop();
@@ -113,6 +127,8 @@ export function ProStudio() {
       engineSetMasterVolume={engineSetMasterVolume}
       engineSetPositionListener={engineSetPositionListener}
       engineExport={engineExport}
+      enginePreviewNote={enginePreviewNote}
+      engineSeek={engineSeek}
     >
       <StudioInner />
     </StudioProvider>

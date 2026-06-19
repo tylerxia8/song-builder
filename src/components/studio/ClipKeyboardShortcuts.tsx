@@ -7,6 +7,8 @@ export function ClipKeyboardShortcuts() {
   const {
     selectedClip,
     state,
+    play,
+    stop,
     duplicateSelectedClip,
     splitSelectedClip,
     deleteSelectedClip,
@@ -17,6 +19,13 @@ export function ClipKeyboardShortcuts() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      if (event.code === "Space") {
+        event.preventDefault();
+        if (state.transport.isPlaying || state.transport.isRecording) stop();
+        else void play();
         return;
       }
 
@@ -56,10 +65,14 @@ export function ClipKeyboardShortcuts() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
     deleteSelectedClip,
+    play,
     redo,
     selectedClip,
     splitSelectedClip,
     state.transport.currentBeat,
+    state.transport.isPlaying,
+    state.transport.isRecording,
+    stop,
     undo,
   ]);
 
